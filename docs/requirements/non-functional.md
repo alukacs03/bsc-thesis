@@ -13,3 +13,20 @@
     - There must be no public open ports without a purpose.
 - **Reproducibility**:
     - The full cluster setup must be achievable with documented steps.
+
+---
+# Hungarian
+# Nem funkcionális követelmények
+- **Stabilitás**:
+    - A rendszernek el kell viselnie egyetlen hub node kiesését anélkül, hogy szolgáltatáskiesés történne.
+- **Rendelkezésre állás**:
+    - A demó munkaterheléseknek 99,5% feletti célzott rendelkezésre állást kell mutatniuk.
+- **Teljesítmény**:
+    - A failover eseményeknek (pl. pod-újraütemezés) 30 másodpercen belül le kell zárulniuk.
+    - A hálózati késleltetés nem haladhatja meg a [meghatározandó] ms értéket.
+    - Az FRR, a WireGuard és az edge agentek nem helyezhetnek túl nagy terhelést a VPS-re.
+- **Biztonság**:
+    - Az összes vezérlési síkhoz tartozó forgalmat a WireGuard hálózatra kell korlátozni.
+    - Nem lehetnek nyilvánosan elérhető portok, amelyeknek nincs kifejezett céljuk.
+- **Reprodukálhatóság**:
+    - A teljes klaszter felállítása dokumentált lépések mentén újra végrehajtható kell legyen.

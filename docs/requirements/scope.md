@@ -13,3 +13,20 @@
 - Multi-region scalability
 - Enterprise-grade security hardening
 - Complex Kubernetes ingress and CNI
+
+---
+# Hungarian
+# Projekt hatóköre
+A hatókörbe tartozik:
+- Debian 12 VPS node-ok (teszteléshez Proxmox VM-ek)
+- Kubernetes klaszter (1 vezérlősík, 1+ worker)
+- WireGuard + OSPF hálózat (FRR-rel)
+- Go alapú master szerver + agentek
+- Demó munkaterhelés(ek)
+- Megfigyelési stack (Prometheus, Grafana, Loki)
+
+A hatókörön kívül esik:
+- Multi-tenant integráció
+- Több régiós skálázhatóság
+- Vállalati szintű kiberbiztonsági megerősítés
+- Komplex Kubernetes ingress és CNI
