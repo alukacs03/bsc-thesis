@@ -1,0 +1,91 @@
+import React, { useState } from 'react'
+import { ChevronDown, User, Settings, LogOut } from 'lucide-react';
+
+interface HeaderProps {
+  currentView: string;
+  onNavigate: (view: string) => void;
+  onLogout: () => void;
+}
+
+const VIEW_TITLES: Record<string, string> = {
+  dashboard: 'Dashboard',
+  approvals: 'Approvals',
+  nodes: 'Nodes',
+  kubernetes: 'Kubernetes',
+  networking: 'Networking',
+  health: 'System Health',
+  users: 'User Management',
+  settings: 'Settings',
+};
+
+const Header = ({ currentView, onNavigate, onLogout }: HeaderProps) => {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  return (
+  <header className="bg-white border-b border-slate-200 px-6 py-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl text-slate-800">{VIEW_TITLES[currentView]}</h2>
+        
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center space-x-2 text-slate-600 hover:text-slate-800 transition-colors p-2 rounded-lg hover:bg-slate-100"
+          >
+            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+              <User className="w-4 h-4 text-white" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm text-slate-800">Admin User</p>
+              <p className="text-xs text-slate-600">admin@example.com</p>
+            </div>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
+          </button>
+          
+          {showUserMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-40" 
+                onClick={() => setShowUserMenu(false)}
+              />
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    alert('Profile settings coming soon!');
+                  }}
+                  className="w-full flex items-center space-x-2 px-4 py-2 text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Profile</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    onNavigate('settings');
+                  }}
+                  className="w-full flex items-center space-x-2 px-4 py-2 text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Settings</span>
+                </button>
+                <hr className="my-2 border-slate-200" />
+                <button
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    onLogout();
+                  }}
+                  className="w-full flex items-center space-x-2 px-4 py-2 text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </header>
+  )
+}
+
+export default Header

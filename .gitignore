@@ -8,3 +8,4 @@ dist/
 build/
 
 # specific
+node_modules
