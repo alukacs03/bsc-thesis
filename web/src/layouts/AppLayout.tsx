@@ -9,9 +9,9 @@ interface AppLayoutProps {
 const AppLayout = ({ children }: AppLayoutProps) => {
   return (
     <div className="min-h-screen bg-slate-100 flex">
-    <Sidebar />
+      <Sidebar currentView="dashboard" onNavigate={() => {}} onLogout={() => {}} />
       <div className="flex-1 flex flex-col">
-            <Header />
+            <Header currentView="dashboard" onNavigate={() => {}} onLogout={() => {}} />
             <main className="flex-1 p-6">
                 {children}
             </main>
