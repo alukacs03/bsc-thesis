@@ -6,6 +6,13 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
+interface NavItem {
+  id: string;
+  label: string;
+  badge?: string | number;
+  badgeColor?: string;
+}
+
 // badge is for demonstration purposes currently
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -53,6 +60,17 @@ const Sidebar = ({ currentView, onNavigate, onLogout }: SidebarProps) => {
         ))} 
         <div className="border-t border-slate-200 my-4"></div>
       </nav>
+      <div className="p-4 border-t border-slate-200">
+        <button 
+          onClick={onLogout}
+          className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-slate-600 hover:text-slate-700 hover:bg-blue-50"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+          <span>Sign Out</span>
+        </button>
+      </div>
     </div>
   )
 }
