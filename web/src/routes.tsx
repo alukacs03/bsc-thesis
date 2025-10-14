@@ -1,17 +1,22 @@
 import { createBrowserRouter } from "react-router-dom";
-import MainLayout from "./layouts/MainLayout";
-import DashboardPage from "./pages/DashboardPage";
-import Nodes from "./pages/Nodes";
-import Approvals from "./pages/Approvals";
+import DashboardView from "./views/DashboardView";
+import NetworkingView from "./views/NetworkingView";
+import NotFoundView from "./views/NotFoundView";
+import AppLayout from "./layouts/AppLayout";
+import NodesView from "./views/NodesView";
+import KubernetesView from "./views/KubernetesView";
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <MainLayout />,
+    element: <AppLayout />,
     children: [
-        { path: "/", element: <DashboardPage /> },
-        { path: "/nodes", element: <Nodes /> },
-        { path: "/approvals", element: <Approvals /> },
+      { path: "/", element: <DashboardView /> },
+      { path: "/dashboard", element: <DashboardView /> },
+      { path: "/nodes", element: <NodesView /> },
+      { path: "/kubernetes", element: <KubernetesView /> },
+      { path: "/networking", element: <NetworkingView /> },
+      { path: "*", element: <NotFoundView /> },
     ]
   },
 ]);

@@ -2,9 +2,10 @@ import CardWithIcon from "../components/CardWithIcon"
 import CardContainer from "../components/CardContainer"
 import CardAction from "../components/CardAction"
 import CardActivity from "../components/CardActivity"
-import { AlertMark, Checkmark, ClockMark, MetricsMark, XMark } from "../components/Icons"
+import { Checkmark, ClockMark, MetricsMark, XMark } from "../components/Icons"
 import Table from "../components/Table"
 import NodeTableRow from "../components/NodeTableRow"
+import { AlertTriangle } from "lucide-react"
 
 const DashboardView = () => {
   return (
@@ -48,7 +49,7 @@ const DashboardView = () => {
                 textColorClass="text-slate-600"
                 valueColorClass="text-yellow-600"
                 iconBGColorClass="bg-yellow-200"
-                icon={<AlertMark />}
+                icon={<AlertTriangle />}
             />
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">

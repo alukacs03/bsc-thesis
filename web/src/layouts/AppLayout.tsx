@@ -1,19 +1,15 @@
 import Header from "../components/Header"
 import Sidebar from "../components/Sidebar"
-import type { ReactNode } from "react"
+import { Outlet } from "react-router-dom"
 
-interface AppLayoutProps {
-    children: ReactNode
-}
-
-const AppLayout = ({ children }: AppLayoutProps) => {
+const AppLayout = () => {
   return (
     <div className="min-h-screen bg-slate-100 flex">
-      <Sidebar currentView="dashboard" onNavigate={() => {}} onLogout={() => {}} />
+      <Sidebar  />
       <div className="flex-1 flex flex-col">
-            <Header currentView="dashboard" onNavigate={() => {}} onLogout={() => {}} />
+            <Header />
             <main className="flex-1 p-6">
-                {children}
+                <Outlet />
             </main>
 
       </div>

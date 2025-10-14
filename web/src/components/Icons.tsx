@@ -1,5 +1,4 @@
 export { default as Checkmark } from "./icons/Checkmark"
 export { default as XMark } from "./icons/XMark"
 export { default as MetricsMark } from "./icons/MetricsMark"
-export { default as AlertMark } from "./icons/AlertMark"
 export { default as ClockMark } from "./icons/ClockMark"
