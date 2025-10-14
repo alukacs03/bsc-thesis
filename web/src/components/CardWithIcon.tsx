@@ -7,6 +7,7 @@ interface CardWithIconProps {
     onClick?: () => void
     textColorClass?: string
     valueColorClass?: string
+    iconBGColorClass?: string
     outlineColorClass?: string
     icon?: React.ReactNode
 }
@@ -18,6 +19,7 @@ const CardWithIcon = ({
     onClick,
     textColorClass = 'text-slate-600',
     valueColorClass = 'text-slate-800',
+    iconBGColorClass = 'bg-slate-100',
     outlineColorClass = '',
     icon
 }: CardWithIconProps) => {
@@ -32,7 +34,7 @@ const CardWithIcon = ({
                     <p className={`text-sm ${textColorClass}`}>{title}</p>
                     <p className={`text-2xl md:text-3xl ${valueColorClass}`}>{value}</p>
                 </div>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                <div className={`w-12 h-12 ${iconBGColorClass} rounded-lg flex items-center justify-center`}>
                     {icon}
                 </div>
             </div>

@@ -1,4 +1,10 @@
 import CardWithIcon from "../components/CardWithIcon"
+import CardContainer from "../components/CardContainer"
+import CardAction from "../components/CardAction"
+import CardActivity from "../components/CardActivity"
+import { AlertMark, Checkmark, ClockMark, MetricsMark, XMark } from "../components/Icons"
+import Table from "../components/Table"
+import NodeTableRow from "../components/NodeTableRow"
 
 const DashboardView = () => {
   return (
@@ -11,11 +17,8 @@ const DashboardView = () => {
                 onClick={() => alert('Navigate to Nodes')}
                 textColorClass="text-slate-600"
                 valueColorClass="text-green-600"
-                icon={
-                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                }
+                iconBGColorClass="bg-green-200"
+                icon={<Checkmark />}
             />
             <CardWithIcon
                 title="Nodes Offline"
@@ -24,11 +27,8 @@ const DashboardView = () => {
                 onClick={() => alert('Navigate to Nodes')}
                 textColorClass="text-slate-600"
                 valueColorClass="text-red-600"
-                icon={
-                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                }
+                iconBGColorClass="bg-red-200"
+                icon={<XMark />}
             />
             <CardWithIcon
                 title="Pending Approvals"
@@ -37,25 +37,106 @@ const DashboardView = () => {
                 onClick={() => alert('Navigate to Approvals')}
                 textColorClass="text-slate-600"
                 outlineColorClass="ring-2 ring-red-500"
-                icon={
-                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                }
+                iconBGColorClass="bg-red-200"
+                icon={<ClockMark />}               
             />
             <CardWithIcon
                 title="Active Alerts"
                 value="2"
                 hint="Click to view system health"
                 onClick={() => alert('Navigate to System Health')}
-                textColorClass="text-purple-800"
-                icon={
-                    <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                }
+                textColorClass="text-slate-600"
+                valueColorClass="text-yellow-600"
+                iconBGColorClass="bg-yellow-200"
+                icon={<AlertMark />}
             />
         </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                <CardContainer title="Recent Activity">
+                    <CardActivity 
+                        message="Node gluon-worker-03 went offline"
+                        timestamp="2 hours ago"
+                        alertLevel="error"
+                    />
+                    <CardActivity
+                        message="New node gluon-worker-04 registered"
+                        timestamp="5 hours ago"
+                        alertLevel="info"
+                    />
+                    <CardActivity
+                        message="3 new approvals pending review"
+                        timestamp="1 day ago"
+                        alertLevel="warning"
+                    />
+                    <CardActivity
+                        message="System health check passed"
+                        timestamp="2 days ago"
+                        alertLevel="info"
+                    />
+                </CardContainer>
+                <CardContainer title="Quick Actions">
+                    <CardAction 
+                        title = "Add New Node"
+                        subtitle = "Register a new VPS node"
+                        onClick = {() => alert('Navigate to Add Node')}
+                        icon={
+                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                        }
+                    />
+                    <CardAction 
+                        title = "Review Approvals"
+                        subtitle = "3 pending approvals"
+                        onClick = {() => alert('Navigate to Approvals')}
+                        icon={<Checkmark />}
+                    />
+                    <CardAction 
+                        title = "View Metrics"
+                        subtitle = "System performance metrics"
+                        onClick = {() => alert('Navigate to System Health')}
+                        icon={<MetricsMark />}
+                    />
+                </CardContainer>
+        </div>
+        <CardContainer title="Node Overview" noPadding={true}>
+            <Table
+                columns={['Node Name', 'IP Address', 'Status', 'Role', 'Last Heartbeat']}
+            >
+                <NodeTableRow
+                    handleNodeClick={() => alert('Node gluon-worker-01 clicked')}
+                    nodeName="gluon-worker-01"
+                    nodeIP="10.0.1.10"
+                    nodeStatus="online"
+                    nodeRole="Control Plane"
+                    lastHeartbeat="2 minutes ago"
+                />
+                <NodeTableRow
+                    handleNodeClick={() => alert('Node gluon-worker-02 clicked')}
+                    nodeName="gluon-worker-02"
+                    nodeIP="10.0.1.11"
+                    nodeStatus="offline"
+                    nodeRole="Worker"
+                    lastHeartbeat="5 minutes ago"
+                />
+                <NodeTableRow
+                    handleNodeClick={() => alert('Node gluon-worker-03 clicked')}
+                    nodeName="gluon-worker-03"
+                    nodeIP="10.0.1.12"
+                    nodeStatus="degraded"
+                    nodeRole="Worker"
+                    lastHeartbeat="10 minutes ago"
+                />
+                <NodeTableRow
+                    handleNodeClick={() => alert('Node gluon-worker-04 clicked')}
+                    nodeName="gluon-worker-04"
+                    nodeIP="10.0.1.13"
+                    nodeStatus="offline"
+                    nodeRole="Worker"
+                    lastHeartbeat="5 minutes ago"
+                />
+            </Table>
+        </CardContainer>
     </div>
   )
 }
