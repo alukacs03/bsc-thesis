@@ -1,8 +1,8 @@
-
+import { getStatusColor } from "../utils/Helpers"
 interface NodeListItemProps {
     id : number
     name : string
-    status : 'Ready' | 'NotReady' | 'Unknown'
+    status : string
     ip : string
     role : string
     cpu : number
@@ -11,19 +11,6 @@ interface NodeListItemProps {
     lastHeartbeat : string
     selectedNode : string | number | null
     setSelectedNode : (id: number) => void
-}
-
-function getStatusColor(status: string) {
-    switch (status) {
-        case 'Ready':
-            return 'bg-green-600 text-white';
-        case 'NotReady':
-            return 'bg-red-600 text-white';
-        case 'Unknown':
-            return 'bg-yellow-600 text-white';
-        default:
-            return 'bg-gray-600 text-white';
-    }
 }
 
 function getMetricColor(value: number, type: 'cpu' | 'memory') {

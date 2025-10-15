@@ -1,13 +1,14 @@
 import { RefreshCw } from "lucide-react"
 
 interface TerminalProps {
+    id?: string;
     title?: string;
     commandHistory?: string[];
     refreshButtonAction?: () => void;
     runCommandAction?: (command: string) => void;
 }
 
-const Terminal = ({ title, commandHistory, refreshButtonAction, runCommandAction }: TerminalProps) => {
+const Terminal = ({ id, title, commandHistory, refreshButtonAction, runCommandAction }: TerminalProps) => {
   return (
     <div className="bg-slate-900 rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
@@ -18,7 +19,7 @@ const Terminal = ({ title, commandHistory, refreshButtonAction, runCommandAction
                 </button>
             )}
         </div>
-        <div className="space-y-1 max-h-64 overflow-y-auto">
+        <div id={id} className="space-y-1 max-h-64 overflow-y-auto">
             {commandHistory?.map((line, index) => (
             <div key={index} className={`text-sm ${
                 line.startsWith('$') ? 'text-green-400' : 'text-slate-300'

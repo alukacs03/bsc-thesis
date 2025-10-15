@@ -5,6 +5,7 @@ import NotFoundView from "./views/NotFoundView";
 import AppLayout from "./layouts/AppLayout";
 import NodesView from "./views/NodesView";
 import KubernetesView from "./views/KubernetesView";
+import NodeManagementView from "./views/NodeManagementView";
 
 export const router = createBrowserRouter([
   {
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
       { path: "/", element: <DashboardView /> },
       { path: "/dashboard", element: <DashboardView /> },
       { path: "/nodes", element: <NodesView /> },
+      { path: "/nodes/:nodeId", element: <NodeManagementView /> },
       { path: "/kubernetes", element: <KubernetesView /> },
       { path: "/networking", element: <NetworkingView /> },
       { path: "*", element: <NotFoundView /> },

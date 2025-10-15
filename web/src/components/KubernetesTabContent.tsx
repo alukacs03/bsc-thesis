@@ -5,7 +5,7 @@ import StorageTab from "./kubes/StorageTab";
 import LogsTab from "./kubes/LogsTab";
 
 interface KubernetesTabContentProps {
-    selectedTab: "Overview" | "Workloads" | "Networking" | "Storage" | "Logs";
+    selectedTab: string;
     cluster: {
         name: string;
         status: string;

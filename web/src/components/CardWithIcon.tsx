@@ -10,6 +10,8 @@ interface CardWithIconProps {
     iconBGColorClass?: string
     outlineColorClass?: string
     icon?: React.ReactNode
+    titleTextSize?: string
+    valueTextSize?: string
 }
 
 const CardWithIcon = ({
@@ -21,7 +23,9 @@ const CardWithIcon = ({
     valueColorClass = 'text-slate-800',
     iconBGColorClass = 'bg-slate-100',
     outlineColorClass = '',
-    icon
+    icon,
+    titleTextSize = 'text-sm',
+    valueTextSize = 'text-2xl md:text-3xl'
 }: CardWithIconProps) => {
   return (
     <>
@@ -31,8 +35,8 @@ const CardWithIcon = ({
             >
             <div className="flex items-center justify-between">
                 <div>
-                    <p className={`text-sm ${textColorClass}`}>{title}</p>
-                    <p className={`text-2xl md:text-3xl ${valueColorClass}`}>{value}</p>
+                    <p className={` ${titleTextSize} ${textColorClass}`}>{title}</p>
+                    <p className={` ${valueTextSize} ${valueColorClass}`}>{value}</p>
                 </div>
                 <div className={`w-12 h-12 ${iconBGColorClass} rounded-lg flex items-center justify-center`}>
                     {icon}

@@ -2,14 +2,14 @@ import CardWithIcon from "../components/CardWithIcon"
 import CardContainer from "../components/CardContainer"
 import { Globe, Server, FolderPen, HardDrive } from "lucide-react"
 import ClusterListItem from "../components/ClusterListItem"
-import KubernetesNavBar from "../components/KubernetesNavBar"
 import { useState } from "react"
 import KubernetesTabContent from "../components/KubernetesTabContent"
+import DetailsNavBar from "../components/DetailsNavBar"
 
 
 const KubernetesView = () => {
     const [selectedCluster, setSelectedCluster] = useState<number | null>(1);
-    const [selectedTab, setSelectedTab] = useState<"Overview" | "Workloads" | "Networking" | "Storage" | "Logs">("Overview");
+    const [selectedTab, setSelectedTab] = useState<string>("Overview");
 
     type ClusterStatus = "Active" | "Inactive" | "Error";
 
@@ -207,7 +207,10 @@ const KubernetesView = () => {
                 >
                     {selectedCluster ? (
                         <div className="border-b border-slate-200">
-                            <KubernetesNavBar setSelectedTab={setSelectedTab} selectedTab={selectedTab}/>
+                            <DetailsNavBar
+                                tabs = {["Overview", "Workloads", "Networking", "Storage", "Logs"]}
+                                setSelectedTab={setSelectedTab}
+                                selectedTab={selectedTab}/>
                             <KubernetesTabContent selectedTab={selectedTab} cluster={clusters[selectedCluster - 1]} />
                         </div>
                     ) : (
