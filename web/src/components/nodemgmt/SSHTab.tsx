@@ -1,6 +1,5 @@
 import { Plus } from "lucide-react"
 import { Key, Copy } from "lucide-react"
-import React from "react"
 
 interface SSHTabProps {
     sshKeys? : {

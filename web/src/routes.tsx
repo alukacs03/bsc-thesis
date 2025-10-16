@@ -6,12 +6,15 @@ import AppLayout from "./layouts/AppLayout";
 import NodesView from "./views/NodesView";
 import KubernetesView from "./views/KubernetesView";
 import NodeManagementView from "./views/NodeManagementView";
+import LoginView from "./views/LoginView";
+import RegisterView from "./views/RegisterView";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     element: <AppLayout />,
     children: [
+      { index: true, element: <DashboardView /> },
       { path: "/", element: <DashboardView /> },
       { path: "/dashboard", element: <DashboardView /> },
       { path: "/nodes", element: <NodesView /> },
@@ -21,4 +24,6 @@ export const router = createBrowserRouter([
       { path: "*", element: <NotFoundView /> },
     ]
   },
+  { path: "/login", element: <LoginView /> },
+  { path: "/register", element: <RegisterView /> },
 ]);

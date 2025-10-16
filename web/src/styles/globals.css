@@ -1,9 +1,10 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
 
 :root {
   --font-size: 16px;
-  
+
   /* Gluon Custom Color Palette */
   --gluon-primary: #317BFF;
   --gluon-primary-lighter: #58A0FF;
@@ -18,55 +19,55 @@
   --gluon-success: #27AE60;
   --gluon-warning: #F2C94C;
   --gluon-error: #EB5757;
-  
+
   /* ShadCN Token Mapping */
-  --background: #F4F4F5;
-  --foreground: #142157;
-  --card: #ffffff;
-  --card-foreground: #142157;
-  --popover: #ffffff;
-  --popover-foreground: #142157;
-  --primary: #317BFF;
-  --primary-foreground: #ffffff;
-  --secondary: #BCD9FF;
-  --secondary-foreground: #142157;
-  --muted: #EEF6FF;
-  --muted-foreground: rgba(20, 33, 87, 0.8);
-  --accent: #142157;
-  --accent-foreground: #ffffff;
-  --destructive: #EB5757;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: #ffffff;
-  --border: rgba(20, 33, 87, 0.1);
-  --input: transparent;
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
   --input-background: #ffffff;
   --switch-background: #BCD9FF;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: #317BFF;
-  --chart-1: #317BFF;
-  --chart-2: #27AE60;
-  --chart-3: #F2C94C;
-  --chart-4: #EB5757;
-  --chart-5: #8DC2FF;
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #142157;
-  --sidebar-primary: #317BFF;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #EEF6FF;
-  --sidebar-accent-foreground: #142157;
-  --sidebar-border: rgba(20, 33, 87, 0.1);
-  --sidebar-ring: #317BFF;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
+  --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
+  --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -74,11 +75,11 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
+  --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
@@ -92,8 +93,8 @@
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @theme inline {
@@ -111,7 +112,7 @@
   --color-gluon-success: #27AE60;
   --color-gluon-warning: #F2C94C;
   --color-gluon-error: #EB5757;
-  
+
   /* ShadCN Colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);

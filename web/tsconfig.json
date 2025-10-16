@@ -5,12 +5,8 @@
     { "path": "./tsconfig.node.json" }
   ],
   "compilerOptions": {
-    "baseUrl": "./src",
     "paths": {
-      "@layouts/*": ["layouts/*"],
-      "@components/*": ["components/*"],
-      "@views/*": ["views/*"],
+      "@/*": ["./src/*"]
     }
-  },
-
+  }
 }
