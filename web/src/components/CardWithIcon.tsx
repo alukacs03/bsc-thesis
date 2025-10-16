@@ -12,6 +12,7 @@ interface CardWithIconProps {
     icon?: React.ReactNode
     titleTextSize?: string
     valueTextSize?: string
+    noHover?: boolean
 }
 
 const CardWithIcon = ({
@@ -25,13 +26,14 @@ const CardWithIcon = ({
     outlineColorClass = '',
     icon,
     titleTextSize = 'text-sm',
-    valueTextSize = 'text-2xl md:text-3xl'
+    valueTextSize = 'text-2xl md:text-3xl',
+    noHover = false,
 }: CardWithIconProps) => {
   return (
     <>
             <button 
                 onClick={onClick}
-                className={`bg-white rounded-lg shadow-sm p-4 md:p-6 ${outlineColorClass} hover:shadow-md hover:scale-105 transition-all duration-200 text-left`}
+                className={`bg-white rounded-lg shadow-sm p-4 md:p-6 ${outlineColorClass} hover:shadow-md ${noHover ? '' : 'hover:scale-105'} transition-all duration-200 text-left`}
             >
             <div className="flex items-center justify-between">
                 <div>
