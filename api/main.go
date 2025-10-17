@@ -12,10 +12,11 @@ import (
 func main() {
 	_, err := database.ConnectDB()
 	if err != nil {
+		fmt.Println("Database connection failed:", err)
 		panic("Failed to connect to database!")
 	}
 
-	fmt.Println("Database connection succesful")
+	fmt.Println("Database connection successful")
 
 	app := fiber.New()
 

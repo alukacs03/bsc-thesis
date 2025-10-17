@@ -43,6 +43,13 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
+	var existingRequest models.UserRegistrationRequest
+	if err := database.DB.Where("email = ?", data["email"]).First(&existingRequest).Error; err == nil {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": "A registration request with this email already exists. Wait for approval.",
+		})
+	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(data["password"]), bcrypt.DefaultCost)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -50,20 +57,147 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
-	user := models.User{
-		Name:     data["name"],
+	registerRequest := models.UserRegistrationRequest{
 		Email:    data["email"],
+		FullName: data["name"],
 		Password: hashedPassword,
+		Status:   "pending",
 	}
 
-	if err := database.DB.Create(&user).Error; err != nil {
+	if err := database.DB.Create(&registerRequest).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to create user",
+			"error": "Failed to create registration request",
+		})
+	}
+
+	/*
+		user := models.User{
+			Name:     data["name"],
+			Email:    data["email"],
+			Password: hashedPassword,
+		}
+
+		if err := database.DB.Create(&user).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to create user",
+			})
+		}*/
+	return c.JSON(fiber.Map{
+		"message": "User Registration Request Created Successfully",
+	})
+}
+
+func ModifyUserRegistration(c *fiber.Ctx) error {
+	fmt.Println("Modifying user registration request")
+
+	var data map[string]string
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(jwt.MapClaims)
+	sub := claims["sub"].(string)
+	userID, _ := strconv.Atoi(sub)
+
+	fmt.Println("Admin user:", userID)
+
+	if data["status"] != "approved" && data["status"] != "rejected" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid status value",
+		})
+	}
+
+	var registrationRequest models.UserRegistrationRequest
+	if err := database.DB.Where("id = ?", data["request_id"]).First(&registrationRequest).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Registration request not found",
+		})
+	}
+
+	uid := uint(userID)
+
+	if data["status"] == "approved" {
+		registrationRequest.Status = "approved"
+		now := time.Now()
+		registrationRequest.ApprovedAt = &now
+		registrationRequest.ApprovedByID = &uid
+		registrationRequest.ApprovedBy = &models.User{ID: uid}
+
+		user := models.User{
+			Name:     registrationRequest.FullName,
+			Email:    registrationRequest.Email,
+			Password: registrationRequest.Password,
+		}
+		if err := database.DB.Create(&user).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to create user. Error: " + err.Error(),
+			})
+		}
+
+	} else if data["status"] == "rejected" {
+		registrationRequest.Status = "rejected"
+		now := time.Now()
+		registrationRequest.RejectedAt = &now
+		registrationRequest.RejectedByID = &uid
+		registrationRequest.RejectedBy = &models.User{ID: uid}
+		registrationRequest.RejectionReason = data["rejection_reason"]
+	}
+
+	if err := database.DB.Save(&registrationRequest).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update registration request",
 		})
 	}
 
 	return c.JSON(fiber.Map{
-		"message": "User Registered Successfully",
+		"message": "User Registration Request Modified Successfully",
+	})
+}
+
+func DeleteUser(c *fiber.Ctx) error {
+	fmt.Println("Deleting user")
+
+	var data map[string]string
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	if data["user_id"] == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "user_id is required",
+		})
+	}
+
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(jwt.MapClaims)
+	sub := claims["sub"].(string)
+
+	if sub == data["user_id"] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Users cannot delete themselves",
+		})
+	}
+
+	var user models.User
+	if err := database.DB.Where("id = ?", data["user_id"]).First(&user).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "User not found",
+		})
+	}
+
+	if err := database.DB.Delete(&user).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to delete user",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": fmt.Sprintf("User %s deleted successfully", user.Email),
 	})
 }
 
@@ -112,7 +246,7 @@ func Login(c *fiber.Ctx) error {
 		Value:    token,
 		Expires:  time.Now().Add(time.Hour * 24),
 		HTTPOnly: true,
-		Secure:   true,
+		Secure:   false,
 	}
 
 	c.Cookie(&cookie)
@@ -132,7 +266,7 @@ func User(c *fiber.Ctx) error {
 		return []byte(secretKey), nil
 	})
 
-	if err != nil {
+	if err != nil || token == nil || !token.Valid {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "Unauthorized",
 		})
@@ -161,7 +295,7 @@ func Logout(c *fiber.Ctx) error {
 		Value:    "",
 		Expires:  time.Now().Add(-time.Hour),
 		HTTPOnly: true,
-		Secure:   true,
+		Secure:   false,
 	}
 	c.Cookie(&cookie)
 
