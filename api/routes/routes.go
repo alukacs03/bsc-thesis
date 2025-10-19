@@ -32,4 +32,5 @@ func SetupRoutes(app *fiber.App) {
 
 	app.Post("/api/modifyRegistrationRequest", controllers.ModifyUserRegistration)
 	app.Post("/api/deleteUser", controllers.DeleteUser)
+	app.Get("/api/userRegRequests", controllers.ListUserRegRequests)
 }

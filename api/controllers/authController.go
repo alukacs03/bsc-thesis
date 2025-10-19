@@ -22,6 +22,33 @@ var secretKey = func() string {
 	return s
 }()
 
+func AddDemoUser() {
+	var existingUser models.User
+	if err := database.DB.Where("email = ?", "admin@example.com").First(&existingUser).Error; err == nil {
+		fmt.Println("Demo user already exists:", existingUser)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+	if err != nil {
+		fmt.Println("Failed to hash password:", err)
+		return
+	}
+
+	demoUser := models.User{
+		Name:     "Admin User",
+		Email:    "admin@example.com",
+		Password: hashedPassword,
+	}
+
+	if err := database.DB.Create(&demoUser).Error; err != nil {
+		fmt.Println("Failed to create demo user:", err)
+		return
+	}
+
+	fmt.Println("Demo user created successfully:", demoUser)
+}
+
 func Hello(c *fiber.Ctx) error {
 	return c.SendString("Hello, World!")
 }
@@ -155,6 +182,19 @@ func ModifyUserRegistration(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "User Registration Request Modified Successfully",
 	})
+}
+
+func ListUserRegRequests(c *fiber.Ctx) error {
+	fmt.Println("Listing user registration requests")
+
+	var requests []models.UserRegistrationRequest
+	if err := database.DB.Preload("ApprovedBy").Preload("RejectedBy").Find(&requests).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch registration requests",
+		})
+	}
+
+	return c.JSON(requests)
 }
 
 func DeleteUser(c *fiber.Ctx) error {

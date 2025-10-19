@@ -4,19 +4,51 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import type { User } from '@/types/User';
 
-interface LoginViewProps {
-    onLogin: () => void;
-    onNavigateToRegister: () => void;
-}
-
-const LoginView = ({ onLogin, onNavigateToRegister }: LoginViewProps) => {
+const LoginView = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
-  // TODO: implement actual login logic
-  onLogin = () => navigate('/dashboard');
-  onNavigateToRegister = () => navigate('/register');
+  const { login } = useAuth();
+
+  const onLogin = async () => {
+    if (!email || !password) {
+      alert('Please enter email and password');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const errorBody: { error?: string } | null = await response.json().catch(() => null);
+        throw new Error(errorBody?.error ?? 'Failed to sign in. Please check your credentials.');
+      }
+
+      const userResponse = await fetch('/api/user', { credentials: 'include' });
+      if (!userResponse.ok) {
+        throw new Error('Failed to load user details. Please try again.');
+      }
+
+      const user: User = await userResponse.json();
+      await login(user);
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Login failed', error);
+      const message = error instanceof Error ? error.message : 'Unexpected error during sign in.';
+      alert(message);
+    }
+  };
+  const onNavigateToRegister = () => navigate('/register');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

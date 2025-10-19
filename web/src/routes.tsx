@@ -9,11 +9,16 @@ import NodeManagementView from "./views/NodeManagementView";
 import LoginView from "./views/LoginView";
 import RegisterView from "./views/RegisterView";
 import ApprovalsView from "./views/ApprovalsView";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <AppLayout />,
+    element: (
+      <ProtectedRoute>
+          <AppLayout />
+      </ProtectedRoute>
+    ),
     children: [
       { index: true, element: <DashboardView /> },
       { path: "/", element: <DashboardView /> },

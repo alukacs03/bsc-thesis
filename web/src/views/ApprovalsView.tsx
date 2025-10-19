@@ -4,8 +4,10 @@ import CardContainer from "../components/CardContainer"
 import ApprovalsTabContent from "../components/ApprovalsTabContent"
 import React from "react"
 import DetailsNavBar from "../components/DetailsNavBar"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import type NodeRequest from "../types/Node"
+import type UserRequest from "../types/User"
+import { useSearchParams } from "react-router-dom"
 
 
   const nodeApprovals: NodeRequest[] = [
@@ -150,92 +152,39 @@ import type NodeRequest from "../types/Node"
     }
   ];
 
-  // User registration approvals data
-  const userApprovals = [
-    {
-      id: 1,
-      username: 'john.smith',
-      email: 'john.smith@example.com',
-      fullName: 'John Smith',
-      requestedAt: '2024-01-15 14:30:00',
-      status: 'pending'
-    },
-    {
-      id: 2,
-      username: 'alice.johnson',
-      email: 'alice.johnson@example.com',
-      fullName: 'Alice Johnson',
-      requestedAt: '2024-01-15 13:45:00',
-      status: 'pending'
-    },
-    {
-      id: 3,
-      username: 'bob.wilson',
-      email: 'bob.wilson@example.com',
-      fullName: 'Bob Wilson',
-      requestedAt: '2024-01-15 12:15:00',
-      status: 'pending'
-    },
-        {
-      id: 4,
-      username: 'sarah.admin',
-      email: 'sarah.admin@example.com',
-      fullName: 'Sarah Wilson',
-      requestedAt: '2024-01-15 10:20:00',
-      approvedAt: '2024-01-15 10:45:00',
-      approvedBy: 'admin@example.com',
-      status: 'approved',
-      approvedBy: 'admin@example.com',
-      approvedAt: '2024-01-15 10:45:00',
-    },
-    {
-        id: 5,
-        username: 'mike.chen',
-        email: 'mike.chen@example.com',
-        fullName: 'Mike Chen',
-        requestedAt: '2024-01-15 09:30:00',
-        approvedAt: '2024-01-15 09:35:00',
-        approvedBy: 'admin@example.com',
-        status: 'approved',
-        approvedBy: 'admin@example.com',
-        approvedAt: '2024-01-15 10:45:00',
-    },
-    {
-        id: 6,
-        username: 'spam.user',
-        email: 'spam@suspicious.com',
-        fullName: 'Spam User',
-        requestedAt: '2024-01-15 08:00:00',
-        rejectedAt: '2024-01-15 08:30:00',
-        rejectedBy: 'admin@example.com',
-        reason: 'Suspicious registration attempt with invalid email domain.',
-        status: 'rejected',
-    },
-    {
-        id: 7,
-        username: 'test.user',
-        email: 'test.user@example.com',
-        fullName: 'Test User',
-        requestedAt: '2024-01-15 08:00:00',
-        status: 'pending'
-    },
-    {
-        id: 8,
-        username: 'rejected.user',
-        email: 'rejected.user@example.com',
-        fullName: 'Rejected User',
-        requestedAt: '2024-01-15 07:30:00',
-        rejectedAt: '2024-01-15 08:00:00',
-        rejectedBy: 'admin@example.com',
-        reason: 'User did not provide required identification documents.',
-        status: 'rejected'
-    }
-  ];
+
 
 const ApprovalsView = () => {
-  const [selectedCategory, setSelectedCategory] = React.useState<'vps' | 'users'>('vps');
   const [selectedTab, setSelectedTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
+  const [userApprovals, setUserApprovals] = React.useState<UserRequest[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedCategory: "vps" | "users" =
+    searchParams.get("tab") === "users" ? "users" : "vps";
 
+  useEffect(() => {
+    if (selectedCategory === 'users') {
+      initUserApprovals();
+    }
+  }, [selectedCategory]);
+
+  const initUserApprovals = () => {
+    fetch('/api/userRegRequests', { method: 'GET', credentials: 'include' })
+      .then(res => res.json())
+      .then((data: UserRequest[]) => {
+        setUserApprovals(data);
+      })
+      .catch(err => {
+        console.error('Failed to fetch user registration requests', err);
+        setUserApprovals([]);
+      });
+  };
+
+  const changeCategory = (category: "vps" | "users") => {
+    const next = new URLSearchParams(searchParams);
+    if (category === "users") next.set("tab", "users");
+    else next.delete("tab");
+    setSearchParams(next, { replace: true });
+  }
 
   return (
     <>
@@ -243,7 +192,7 @@ const ApprovalsView = () => {
             <div className="bg-white rounded-lg shadow-sm">
                 <div className="flex border-b border-slate-200">
                 <button
-                    onClick={() => setSelectedCategory('vps')}
+                    onClick={() => changeCategory('vps')}
                     className={`flex-1 flex items-center justify-center space-x-3 px-6 py-4 transition-colors ${
                     selectedCategory === 'vps'
                         ? 'bg-blue-50 border-b-2 border-blue-500 text-blue-600'
@@ -255,7 +204,9 @@ const ApprovalsView = () => {
                     <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">{nodeApprovals.length}</span>
                 </button>
                 <button
-                    onClick={() => setSelectedCategory('users')}
+                    onClick={() => {
+                        changeCategory('users');
+                    }}
                     className={`flex-1 flex items-center justify-center space-x-3 px-6 py-4 transition-colors ${
                     selectedCategory === 'users'
                         ? 'bg-blue-50 border-b-2 border-blue-500 text-blue-600'
@@ -277,12 +228,12 @@ const ApprovalsView = () => {
                     noHover={true}
                 />
             )) || (selectedCategory === 'users' && (
-                <CardWithIcon
-                    icon={<Users className="w-6 h-6 text-blue-600" />}
-                    title="Total User Registration Requests"
-                    value={userApprovals.length}
-                    noHover={true}
-                />
+                  <CardWithIcon
+                      icon={<Users className="w-6 h-6 text-blue-600" />}
+                      title="Total User Registration Requests"
+                      value={userApprovals.length}
+                      noHover={true}
+                  />
             ))}
             </div>
             <CardContainer
@@ -300,6 +251,7 @@ const ApprovalsView = () => {
                         selectedTab={selectedTab}
                         nodeApprovals={nodeApprovals}
                         userApprovals={userApprovals}
+                        onUserStatusChange={initUserApprovals}
                     />
                 </div>
 

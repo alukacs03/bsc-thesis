@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, User, Settings, LogOut } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 
 const VIEW_TITLES: Record<string, string> = {
@@ -14,9 +15,33 @@ const VIEW_TITLES: Record<string, string> = {
   settings: 'Settings',
 };
 
+
+
 const Header = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  const handleLogout = async () => {
+
+    try {
+      const response = await fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to log out. Please try again.');
+      }
+      
+      logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed', error);
+      const message = error instanceof Error ? error.message : 'Unexpected error during logout.';
+      alert(message);
+    }
+  };
 
   return (
   <header className="bg-white border-b border-slate-200 px-6 py-4">
@@ -68,6 +93,7 @@ const Header = () => {
                 <button
                   onClick={() => {
                     setShowUserMenu(false);
+                    handleLogout();
                   }}
                   className="w-full flex items-center space-x-2 px-4 py-2 text-red-600 hover:bg-red-50 transition-colors"
                 >

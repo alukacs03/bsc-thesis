@@ -5,18 +5,48 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 
-interface RegisterPageProps {
-    onRegister: () => void;
-    onNavigateToLogin: () => void;
-}
 
-const RegisterView = ({ onRegister, onNavigateToLogin }: RegisterPageProps) => {
+const RegisterView = () => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const navigate = useNavigate();
-  onRegister = () => navigate('/dashboard');
-  onNavigateToLogin = () => navigate('/login');
+  const onRegister = () => 
+    {
+      if (password !== confirmPassword) {
+        alert("Passwords do not match");
+        return;
+      }
+
+      fetch('/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: fullName,
+          email,
+          password,
+          confirmPassword,
+        }),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error('Failed to register. Please try again.' + response.statusText);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          console.log('Registration successful:', data);
+          navigate('/dashboard');
+        })
+        .catch((error) => {
+          console.error('Registration failed:', error);
+          alert(error.message);
+        });
+    };
+  const onNavigateToLogin = () => navigate('/login');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,13 +90,24 @@ const RegisterView = ({ onRegister, onNavigateToLogin }: RegisterPageProps) => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
-                id="username"
-                type="text"
-                placeholder="john.smith"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 required
               />
             </div>

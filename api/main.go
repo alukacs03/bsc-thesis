@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"gluon-api/controllers"
 	"gluon-api/database"
 	"gluon-api/routes"
 
@@ -16,15 +17,17 @@ func main() {
 		panic("Failed to connect to database!")
 	}
 
+	controllers.AddDemoUser()
+
 	fmt.Println("Database connection successful")
 
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "*",
+		AllowOrigins:     "http://localhost:5173",
 		AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "Content-Type,Authorization,Accept,Origin,Access-Control-Request-Method,Access-Control-Request-Headers,Access-Control-Allow-Origin,Access-Control-Allow-Headers,Access-Control-Allow-Methods,Access-Control-Expose-Headers,Access-Control-Max-Age,Access-Control-Allow-Credentials",
-		AllowCredentials: false,
+		AllowCredentials: true,
 	}))
 
 	routes.SetupRoutes(app)
