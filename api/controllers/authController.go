@@ -36,9 +36,11 @@ func AddDemoUser() {
 	}
 
 	demoUser := models.User{
-		Name:     "Admin User",
-		Email:    "admin@example.com",
-		Password: hashedPassword,
+		Name:      "Admin User",
+		Email:     "admin@example.com",
+		Password:  hashedPassword,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	if err := database.DB.Create(&demoUser).Error; err != nil {
@@ -154,15 +156,20 @@ func ModifyUserRegistration(c *fiber.Ctx) error {
 		registrationRequest.ApprovedBy = &models.User{ID: uid}
 
 		user := models.User{
-			Name:     registrationRequest.FullName,
-			Email:    registrationRequest.Email,
-			Password: registrationRequest.Password,
+			Name:      registrationRequest.FullName,
+			Email:     registrationRequest.Email,
+			Password:  registrationRequest.Password,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
+
 		if err := database.DB.Create(&user).Error; err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Failed to create user. Error: " + err.Error(),
 			})
 		}
+
+		registrationRequest.ConvertedUserID = &user.ID
 
 	} else if data["status"] == "rejected" {
 		registrationRequest.Status = "rejected"

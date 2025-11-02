@@ -15,7 +15,42 @@ func ConnectDB() (*gorm.DB, error) {
 		return nil, err
 	}
 	DB = db
-	err = db.AutoMigrate(&models.User{}, &models.UserRegistrationRequest{})
+
+	// Run migrations for all models
+	// Order matters: parent tables before child tables (for foreign keys)
+	err = db.AutoMigrate(
+		// Core models
+		&models.User{},
+		&models.Cluster{},
+
+		// User enrollment
+		&models.UserRegistrationRequest{},
+
+		// IPAM
+		&models.IPPool{},
+		&models.IPAllocation{},
+
+		// Node enrollment and management
+		&models.NodeEnrollmentRequest{},
+		&models.Node{},
+		&models.NodePeer{},
+
+		// Authentication
+		&models.JoinToken{},
+		&models.APIKey{},
+
+		// Configuration profiles
+		&models.WireGuardProfile{},
+		&models.OSPFProfile{},
+
+		// Health monitoring
+		&models.Heartbeat{},
+		&models.HeartbeatDetail{},
+
+		// Logging
+		&models.AuditLog{},
+		&models.Event{},
+	)
 	if err != nil {
 		return nil, err
 	}
