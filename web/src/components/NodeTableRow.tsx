@@ -4,10 +4,10 @@ interface NodeTableRowProps {
     nodeIP : string
     nodeStatus : 'online' | 'offline' | 'degraded'
     nodeRole : string
-    lastHeartbeat : string
+    lastSeen : string
 }
 
-const NodeTableRow = ({ handleNodeClick, nodeName, nodeIP, nodeStatus, nodeRole, lastHeartbeat }: NodeTableRowProps) => {
+const NodeTableRow = ({ handleNodeClick, nodeName, nodeIP, nodeStatus, nodeRole, lastSeen }: NodeTableRowProps) => {
   return (
         <tr 
             onClick={() => handleNodeClick('1')}
@@ -25,7 +25,7 @@ const NodeTableRow = ({ handleNodeClick, nodeName, nodeIP, nodeStatus, nodeRole,
                 )}
             </td>
             <td className="py-2 md:py-3 px-3 md:px-6 text-sm text-slate-600 hidden md:table-cell">{nodeRole}</td>
-            <td className="py-2 md:py-3 px-3 md:px-6 text-sm text-slate-600 hidden lg:table-cell">{lastHeartbeat}</td>
+            <td className="py-2 md:py-3 px-3 md:px-6 text-sm text-slate-600 hidden lg:table-cell">{lastSeen}</td>
         </tr>
   )
 }

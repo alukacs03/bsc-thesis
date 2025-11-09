@@ -13,7 +13,7 @@ interface NodeManagementTabContentProps {
             ip: string;
             status: string;
             role: string;
-            lastHeartbeat: string;
+            lastSeen: string;
             cpu: number;
             memory: number;
             disk: number;

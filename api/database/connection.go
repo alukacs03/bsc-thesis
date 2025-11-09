@@ -43,10 +43,6 @@ func ConnectDB() (*gorm.DB, error) {
 		&models.WireGuardProfile{},
 		&models.OSPFProfile{},
 
-		// Health monitoring
-		&models.Heartbeat{},
-		&models.HeartbeatDetail{},
-
 		// Logging
 		&models.AuditLog{},
 		&models.Event{},

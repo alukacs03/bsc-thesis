@@ -8,7 +8,7 @@ interface NodeListItemProps {
     cpu : number
     memory : number
     pods : number
-    lastHeartbeat : string
+    lastSeen : string
     selectedNode : string | number | null
     setSelectedNode : (id: number) => void
 }
@@ -25,7 +25,7 @@ function getMetricColor(value: number, type: 'cpu' | 'memory') {
     }
 }
 
-const NodeListItem = ({ id, name, status, ip, role, cpu, memory, pods, lastHeartbeat, selectedNode, setSelectedNode }: NodeListItemProps) => {
+const NodeListItem = ({ id, name, status, ip, role, cpu, memory, pods, lastSeen, selectedNode, setSelectedNode }: NodeListItemProps) => {
   return (
     <>
         <div
@@ -61,7 +61,7 @@ const NodeListItem = ({ id, name, status, ip, role, cpu, memory, pods, lastHeart
             </div>
             <div className="text-right">
             <p className="text-xs text-slate-500">Last seen</p>
-            <p className="text-xs text-slate-700">{lastHeartbeat}</p>
+            <p className="text-xs text-slate-700">{lastSeen}</p>
             </div>
         </div>
         </div>

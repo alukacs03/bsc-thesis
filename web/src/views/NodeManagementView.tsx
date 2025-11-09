@@ -21,7 +21,7 @@ const NodeManagementView = () => {
             ip: '10.0.1.10',
             status: 'online',
             role: 'Control Plane',
-            lastHeartbeat: '2 minutes ago',
+            lastSeen: '2 minutes ago',
             cpu: 45,
             memory: 62,
             disk: 38,
@@ -38,7 +38,7 @@ const NodeManagementView = () => {
                 "2024-10-01 12:05:00 [WARN] High memory usage detected.",
                 "2024-10-01 12:10:00 [INFO] New pod scheduled: pod-xyz.",
                 "2024-10-01 12:15:00 [ERROR] Failed to pull image for pod-abc.",
-                "2024-10-01 12:20:00 [INFO] Node heartbeat sent.",
+                "2024-10-01 12:20:00 [INFO] Node metrics updated.",
                 "2024-10-01 12:25:00 [INFO] Pod pod-xyz is now running.",
                 "2024-10-01 12:30:00 [WARN] Disk space running low.",
                 "2024-10-01 12:35:00 [INFO] Node metrics updated.",
@@ -135,7 +135,7 @@ const NodeManagementView = () => {
             ip: '10.0.1.11',
             status: 'online',
             role: 'Worker',
-            lastHeartbeat: '1 minute ago',
+            lastSeen: '1 minute ago',
             cpu: 78,
             memory: 82,
             disk: 55,
@@ -155,7 +155,7 @@ const NodeManagementView = () => {
             ip: '10.0.1.12',
             status: 'online',
             role: 'Worker',
-            lastHeartbeat: '30 seconds ago',
+            lastSeen: '30 seconds ago',
             cpu: 32,
             memory: 48,
             disk: 41,
@@ -175,7 +175,7 @@ const NodeManagementView = () => {
             ip: '10.0.1.13',
             status: 'offline',
             role: 'Worker',
-            lastHeartbeat: '2 hours ago',
+            lastSeen: '2 hours ago',
             cpu: 0,
             memory: 0,
             disk: 68,
@@ -195,7 +195,7 @@ const NodeManagementView = () => {
             ip: '10.0.1.14',
             status: 'maintenance',
             role: 'Worker',
-            lastHeartbeat: '5 minutes ago',
+            lastSeen: '5 minutes ago',
             cpu: 15,
             memory: 25,
             disk: 33,
@@ -250,7 +250,7 @@ const NodeManagementView = () => {
             valueTextSize="text-xl"
             iconBGColorClass={getStatusColor(nodeData.status).replace('text', 'bg') + ' bg-opacity-20'}
             icon={<HeartPulse className="w-6 h-6 text-slate-800" />}
-            hint={"Last seen: " + nodeData.lastHeartbeat}
+            hint={"Last seen: " + nodeData.lastSeen}
         />
         <CardWithIcon
             title="Uptime"

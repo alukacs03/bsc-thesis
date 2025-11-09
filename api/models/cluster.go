@@ -11,6 +11,5 @@ type Cluster struct {
 	Description string `json:"description"`
 
 	// Kubernetes configuration (for future use, not used in MVP)
-	KubernetesVersion     string `json:"kubernetes_version"`
-	AllowAutoApproveNodes bool   `json:"allow_auto_approve_nodes" gorm:"default:false"`
+	KubernetesVersion string `json:"kubernetes_version"`
 }

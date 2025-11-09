@@ -17,9 +17,8 @@ type IPPool struct {
 	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
 	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	Kind     IPPoolKind `json:"kind" gorm:"not null"`
-	CIDR     string     `json:"cidr" gorm:"not null"`
-	NextHint string     `json:"next_hint" gorm:"not null"` // Optimization: next IP to try allocating
+	Kind IPPoolKind `json:"kind" gorm:"not null"`
+	CIDR string     `json:"cidr" gorm:"not null"`
 }
 
 type IPAllocation struct {
@@ -29,9 +28,14 @@ type IPAllocation struct {
 	PoolID uint   `json:"pool_id" gorm:"not null;index"`
 	Pool   IPPool `json:"pool,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	NodeID *uint `json:"node_id,omitempty" gorm:"index"` // Nullable for reserved IPs
+	// Optional reference to node (for general allocations)
+	NodeID *uint `json:"node_id,omitempty" gorm:"index"`
 	Node   *Node `json:"node,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	Value   string `json:"value" gorm:"not null;unique"` // e.g., "10.0.0.5/32"
-	Purpose string `json:"purpose" gorm:"not null"`      // e.g., "wg_ip", "reserve"
+	// Optional reference to specific WireGuard interface (for WireGuard IPs)
+	InterfaceID *uint               `json:"interface_id,omitempty" gorm:"index"`
+	Interface   *WireGuardInterface `json:"interface,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+
+	Value   string `json:"value" gorm:"not null;unique"` // e.g., "10.0.0.5/32" or "172.31.253.154/30"
+	Purpose string `json:"purpose" gorm:"not null"`      // e.g., "wg_interface", "dummy", "reserve"
 }

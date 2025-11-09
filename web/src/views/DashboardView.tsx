@@ -102,7 +102,7 @@ const DashboardView = () => {
         </div>
         <CardContainer title="Node Overview" noPadding={true}>
             <Table
-                columns={['Node Name', 'IP Address', 'Status', 'Role', 'Last Heartbeat']}
+                columns={['Node Name', 'IP Address', 'Status', 'Role', 'Last Seen']}
             >
                 <NodeTableRow
                     handleNodeClick={() => alert('Node gluon-worker-01 clicked')}
@@ -110,7 +110,7 @@ const DashboardView = () => {
                     nodeIP="10.0.1.10"
                     nodeStatus="online"
                     nodeRole="Control Plane"
-                    lastHeartbeat="2 minutes ago"
+                    lastSeen="2 minutes ago"
                 />
                 <NodeTableRow
                     handleNodeClick={() => alert('Node gluon-worker-02 clicked')}
@@ -118,7 +118,7 @@ const DashboardView = () => {
                     nodeIP="10.0.1.11"
                     nodeStatus="offline"
                     nodeRole="Worker"
-                    lastHeartbeat="5 minutes ago"
+                    lastSeen="5 minutes ago"
                 />
                 <NodeTableRow
                     handleNodeClick={() => alert('Node gluon-worker-03 clicked')}
@@ -126,7 +126,7 @@ const DashboardView = () => {
                     nodeIP="10.0.1.12"
                     nodeStatus="degraded"
                     nodeRole="Worker"
-                    lastHeartbeat="10 minutes ago"
+                    lastSeen="10 minutes ago"
                 />
                 <NodeTableRow
                     handleNodeClick={() => alert('Node gluon-worker-04 clicked')}
@@ -134,7 +134,7 @@ const DashboardView = () => {
                     nodeIP="10.0.1.13"
                     nodeStatus="offline"
                     nodeRole="Worker"
-                    lastHeartbeat="5 minutes ago"
+                    lastSeen="5 minutes ago"
                 />
             </Table>
         </CardContainer>

@@ -9,3 +9,5 @@ build/
 
 # specific
 node_modules
+
+*.db
