@@ -7,7 +7,7 @@ type APIKey struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	NodeID uint `json:"node_id" gorm:"not null;index"`
+	NodeID uint `json:"node_id" gorm:"unique;not null;index"`
 	Node   Node `json:"node,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	Name      string `json:"name" gorm:"not null"`    // e.g., "worker-1-primary-key"

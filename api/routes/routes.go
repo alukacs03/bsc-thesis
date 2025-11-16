@@ -25,6 +25,8 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/api/login", controllers.Login)
 	app.Get("/api/user", controllers.User)
 	app.Post("/api/logout", controllers.Logout)
+	app.Post("/api/enrollAgent", controllers.RequestEnrollment)
+	app.Post("/api/checkAgentEnrollmentStatus", controllers.CheckAgentEnrollmentStatus)
 
 	// Protected routes under this
 	app.Use(jwtware.New(jwtware.Config{
@@ -36,6 +38,7 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/api/deleteUser", controllers.DeleteUser)
 	app.Get("/api/userRegRequests", controllers.ListUserRegRequests)
 	app.Post("/api/generateAPIKey", controllers.GenerateAPIKey)
+	app.Post("/api/acceptAgentEnrollment", controllers.AcceptAgentEnrollment)
 
 	agent := app.Group("/api/agent")
 	agent.Use(middleware.APIKeyAuth())

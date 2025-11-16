@@ -59,7 +59,7 @@ func APIKeyAuth() fiber.Handler {
 
 		if matchedKey == nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "Invalid API key",
+				"error": "Invalid or expired API key",
 			})
 		}
 
