@@ -27,10 +27,7 @@ type Event struct {
 
 	Kind EventKind `json:"kind" gorm:"not null;index"`
 
-	// Optional references (nullable for cluster-wide or multi-node events)
-	ClusterID *uint    `json:"cluster_id,omitempty" gorm:"index"`
-	Cluster   *Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-
+	// Optional node reference (nullable for system-wide events)
 	NodeID *uint `json:"node_id,omitempty" gorm:"index"`
 	Node   *Node `json:"node,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 

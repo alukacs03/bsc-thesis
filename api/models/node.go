@@ -27,10 +27,6 @@ type Node struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Gluon cluster membership
-	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
-	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-
 	// Identity
 	Hostname string   `json:"hostname" gorm:"not null"`
 	Role     NodeRole `json:"role" gorm:"not null"`
@@ -58,10 +54,6 @@ type NodeEnrollmentRequest struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	RequestedAt time.Time `json:"requested_at" gorm:"autoCreateTime"`
 	Status      string    `json:"status" gorm:"default:'pending'"`
-
-	// Gluon cluster the node wants to join
-	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
-	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	// data from the agent
 	Hostname    string   `json:"hostname" gorm:"not null"`

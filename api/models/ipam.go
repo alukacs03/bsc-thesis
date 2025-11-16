@@ -14,9 +14,6 @@ type IPPool struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
-	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-
 	Kind IPPoolKind `json:"kind" gorm:"not null"`
 	CIDR string     `json:"cidr" gorm:"not null"`
 }

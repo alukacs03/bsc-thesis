@@ -11,9 +11,6 @@ type WireGuardProfile struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
-	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-
 	Name    string `json:"name" gorm:"unique;not null"` // e.g., "default"
 	Version string `json:"version"`                     // WireGuard version compatibility
 
@@ -29,9 +26,6 @@ type OSPFProfile struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-
-	ClusterID uint    `json:"cluster_id" gorm:"not null;index"`
-	Cluster   Cluster `json:"cluster,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	Name    string `json:"name" gorm:"unique;not null"` // e.g., "default"
 	Version string `json:"version"`                     // FRR version

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"gluon-api/controllers"
 	"gluon-api/database"
+	"gluon-api/logger"
 	"gluon-api/routes"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,18 +11,22 @@ import (
 )
 
 func main() {
+	logger.Init()
+	logger.Info("Starting Gluon API server...")
 	_, err := database.ConnectDB()
 	if err != nil {
-		fmt.Println("Database connection failed:", err)
+		logger.Error("Failed to connect to database:", err)
 		panic("Failed to connect to database!")
 	}
 
 	controllers.AddDemoUser()
 
-	fmt.Println("Database connection successful")
+	logger.Info("Database connection successful")
 
+	logger.Debug("Setting up Fiber app")
 	app := fiber.New()
 
+	logger.Debug("Setting up CORS middleware")
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     "http://localhost:5173",
 		AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
@@ -30,10 +34,13 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	logger.Debug("Setting up routes")
 	routes.SetupRoutes(app)
 
+	logger.Info("Starting server on port 3000")
 	err = app.Listen(":3000")
 	if err != nil {
+		logger.Error("Failed to start server:", err)
 		panic(err)
 	}
 }

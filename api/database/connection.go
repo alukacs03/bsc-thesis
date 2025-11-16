@@ -21,7 +21,6 @@ func ConnectDB() (*gorm.DB, error) {
 	err = db.AutoMigrate(
 		// Core models
 		&models.User{},
-		&models.Cluster{},
 
 		// User enrollment
 		&models.UserRegistrationRequest{},
@@ -36,7 +35,6 @@ func ConnectDB() (*gorm.DB, error) {
 		&models.NodePeer{},
 
 		// Authentication
-		&models.JoinToken{},
 		&models.APIKey{},
 
 		// Configuration profiles

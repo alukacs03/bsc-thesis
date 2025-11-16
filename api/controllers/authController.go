@@ -3,7 +3,9 @@ package controllers
 import (
 	"fmt"
 	"gluon-api/database"
+	"gluon-api/logger"
 	"gluon-api/models"
+	"gluon-api/utils"
 	"os"
 	"strconv"
 	"time"
@@ -25,13 +27,13 @@ var secretKey = func() string {
 func AddDemoUser() {
 	var existingUser models.User
 	if err := database.DB.Where("email = ?", "admin@example.com").First(&existingUser).Error; err == nil {
-		fmt.Println("Demo user already exists:", existingUser)
+		logger.Debug("Demo user already exists")
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
 	if err != nil {
-		fmt.Println("Failed to hash password:", err)
+		logger.Debug("Failed to hash password:", err)
 		return
 	}
 
@@ -44,11 +46,11 @@ func AddDemoUser() {
 	}
 
 	if err := database.DB.Create(&demoUser).Error; err != nil {
-		fmt.Println("Failed to create demo user:", err)
+		logger.Debug("Failed to create demo user:", err)
 		return
 	}
 
-	fmt.Println("Demo user created successfully:", demoUser)
+	logger.Debug("Demo user created successfully:", demoUser)
 }
 
 func Hello(c *fiber.Ctx) error {
@@ -56,7 +58,7 @@ func Hello(c *fiber.Ctx) error {
 }
 
 func Register(c *fiber.Ctx) error {
-	fmt.Println("Received a registration request")
+	logger.Info("Received a registration request")
 
 	var data map[string]string
 	if err := c.BodyParser(&data); err != nil {
@@ -117,7 +119,7 @@ func Register(c *fiber.Ctx) error {
 }
 
 func ModifyUserRegistration(c *fiber.Ctx) error {
-	fmt.Println("Modifying user registration request")
+	logger.Info("Modifying user registration request")
 
 	var data map[string]string
 	if err := c.BodyParser(&data); err != nil {
@@ -180,6 +182,11 @@ func ModifyUserRegistration(c *fiber.Ctx) error {
 		registrationRequest.RejectionReason = data["rejection_reason"]
 	}
 
+	logger.Audit(c, "Modified user registration request", &uid, "modify_user_registration", "user_registration_request", map[string]interface{}{
+		"request_id": data["request_id"],
+		"status":     data["status"],
+	})
+
 	if err := database.DB.Save(&registrationRequest).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update registration request",
@@ -192,7 +199,7 @@ func ModifyUserRegistration(c *fiber.Ctx) error {
 }
 
 func ListUserRegRequests(c *fiber.Ctx) error {
-	fmt.Println("Listing user registration requests")
+	logger.Info("Listing user registration requests")
 
 	var requests []models.UserRegistrationRequest
 	if err := database.DB.Preload("ApprovedBy").Preload("RejectedBy").Find(&requests).Error; err != nil {
@@ -205,7 +212,7 @@ func ListUserRegRequests(c *fiber.Ctx) error {
 }
 
 func DeleteUser(c *fiber.Ctx) error {
-	fmt.Println("Deleting user")
+	logger.Info("Deleting user")
 
 	var data map[string]string
 	if err := c.BodyParser(&data); err != nil {
@@ -249,7 +256,7 @@ func DeleteUser(c *fiber.Ctx) error {
 }
 
 func Login(c *fiber.Ctx) error {
-	fmt.Println("Received a login request")
+	logger.Info("Received a login request")
 
 	var data map[string]string
 	if err := c.BodyParser(&data); err != nil {
@@ -305,7 +312,7 @@ func Login(c *fiber.Ctx) error {
 }
 
 func User(c *fiber.Ctx) error {
-	fmt.Println("Fetching user info")
+	logger.Debug("Fetching user info")
 
 	cookie := c.Cookies("jwt")
 
@@ -335,7 +342,7 @@ func User(c *fiber.Ctx) error {
 }
 
 func Logout(c *fiber.Ctx) error {
-	fmt.Println("Logging out user")
+	logger.Info("Logging out user")
 
 	cookie := fiber.Cookie{
 		Name:     "jwt",
@@ -349,4 +356,103 @@ func Logout(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Logout successful",
 	})
+}
+
+func GenerateAPIKey(c *fiber.Ctx) error {
+	logger.Info("Generating API key")
+
+	user, err := getUserFromToken(c)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve user from token",
+		})
+	}
+
+	var data map[string]string
+	if err := c.BodyParser(&data); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	nodeIDStr, ok := data["node_id"]
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "node_id is required",
+		})
+	}
+
+	nodeID, err := strconv.Atoi(nodeIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid node_id",
+		})
+	}
+
+	keyName, ok := data["key_name"]
+	if !ok {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "key_name is required",
+		})
+	}
+
+	plainKey, err := utils.GenerateAPIKey()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate API key",
+		})
+	}
+
+	hashedKey, hashIndex, err := utils.HashAPIKey(plainKey)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to hash API key",
+		})
+	}
+
+	apiKey := models.APIKey{
+		NodeID:    uint(nodeID),
+		Name:      keyName,
+		Hash:      hashedKey,
+		HashIndex: hashIndex,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := database.DB.Create(&apiKey).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to store API key",
+		})
+	}
+
+	logger.Audit(
+		c,
+		"Generating API key",
+		&user.ID,
+		"generate_api_key",
+		"api_key",
+		map[string]interface{}{
+			"node_id":  nodeID,
+			"key_name": keyName,
+		},
+	)
+
+	return c.JSON(fiber.Map{
+		"api_key": plainKey,
+		"message": "API key generated successfully",
+	})
+}
+
+func getUserFromToken(c *fiber.Ctx) (*models.User, error) {
+	token := c.Locals("user").(*jwt.Token)
+	claims := token.Claims.(jwt.MapClaims)
+	sub := claims["sub"].(string)
+	userID, _ := strconv.Atoi(sub)
+
+	var user models.User
+	if err := database.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }

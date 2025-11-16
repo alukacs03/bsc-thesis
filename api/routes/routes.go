@@ -2,6 +2,7 @@ package routes
 
 import (
 	"gluon-api/controllers"
+	"gluon-api/middleware"
 	"os"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,6 +26,7 @@ func SetupRoutes(app *fiber.App) {
 	app.Get("/api/user", controllers.User)
 	app.Post("/api/logout", controllers.Logout)
 
+	// Protected routes under this
 	app.Use(jwtware.New(jwtware.Config{
 		SigningKey:  jwtware.SigningKey{Key: []byte(secretKey)},
 		TokenLookup: "cookie:jwt",
@@ -33,4 +35,9 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/api/modifyRegistrationRequest", controllers.ModifyUserRegistration)
 	app.Post("/api/deleteUser", controllers.DeleteUser)
 	app.Get("/api/userRegRequests", controllers.ListUserRegRequests)
+	app.Post("/api/generateAPIKey", controllers.GenerateAPIKey)
+
+	agent := app.Group("/api/agent")
+	agent.Use(middleware.APIKeyAuth())
+	agent.Post("/status", controllers.AgentStatus)
 }
