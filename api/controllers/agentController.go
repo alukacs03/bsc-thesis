@@ -5,6 +5,7 @@ import (
 	"gluon-api/logger"
 	"gluon-api/models"
 	"gluon-api/utils"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -97,17 +98,14 @@ func RequestEnrollment(c *fiber.Ctx) error {
 }
 
 func AcceptAgentEnrollment(c *fiber.Ctx) error {
-	type acceptEnrollmentInput struct {
-		RequestID uint `json:"request_id"`
-	}
-	var input acceptEnrollmentInput
-	if err := c.BodyParser(&input); err != nil {
-		logger.Error("Failed to parse accept enrollment request: ", "error", err)
+	req_id_str := c.Params("id")
+	req_id, err := strconv.Atoi(req_id_str)
+	if err != nil {
+		logger.Error("Invalid request ID: ", "error", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid JSON payload",
+			"error": "Invalid request ID",
 		})
 	}
-	req_id := input.RequestID
 
 	request := models.NodeEnrollmentRequest{}
 	if err := database.DB.First(&request, req_id).Error; err != nil {
@@ -148,7 +146,7 @@ func AcceptAgentEnrollment(c *fiber.Ctx) error {
 		OS:                  request.OS,
 		Status:              models.NodeStatusActive,
 		EnrolledByID:        &user.ID,
-		EnrollmentRequestID: req_id,
+		EnrollmentRequestID: uint(req_id),
 	}
 	if err := database.DB.Create(&node).Error; err != nil {
 		logger.Error("Failed to create node from enrollment request: ", "error", err)
@@ -168,6 +166,53 @@ func AcceptAgentEnrollment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Enrollment request accepted",
 		"node_id": node.ID,
+	})
+}
+
+func RejectAgentEnrollment(c *fiber.Ctx) error {
+	req_id_str := c.Params("id")
+	req_id, err := strconv.Atoi(req_id_str)
+	if err != nil {
+		logger.Error("Invalid request ID: ", "error", err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request ID",
+		})
+	}
+
+	request := models.NodeEnrollmentRequest{}
+	if err := database.DB.First(&request, req_id).Error; err != nil {
+		logger.Error("Enrollment request not found: ", "error", err)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Enrollment request not found",
+		})
+	}
+	if request.Status != "pending" {
+		logger.Warn("Enrollment request is not pending", "request_id", req_id, "status", request.Status)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Enrollment request is not pending",
+		})
+	}
+
+	request.Status = "rejected"
+	if err := database.DB.Save(&request).Error; err != nil {
+		logger.Error("Failed to update enrollment request status: ", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update enrollment request status",
+		})
+	}
+	// audit log
+	user, err := getUserFromToken(c)
+	if err != nil {
+		return err
+	}
+	uid := user.ID
+	logger.Audit(c, "Rejected enrollment request", &uid, "reject_enrollment_request", "node_enrollment_request", map[string]any{
+		"request_id": req_id,
+	})
+
+	logger.Info("Enrollment request rejected", "request_id", req_id)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Enrollment request rejected",
 	})
 }
 
@@ -193,7 +238,6 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 	}
 
 	if request.Status == "accepted" && request.ConvertedNodeID != nil {
-		// check if API key already exists for this node and if yes, do not return. we've already returned it once
 		var existingAPIKey models.APIKey
 		if err := database.DB.Where("node_id = ?", *request.ConvertedNodeID).First(&existingAPIKey).Error; err == nil {
 			return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -201,8 +245,6 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 				"status":     request.Status,
 			})
 		}
-
-		// generate API key
 		plainKey, err := utils.GenerateAPIKey()
 		if err != nil {
 			logger.Error("Failed to generate API key: ", "error", err)
@@ -258,6 +300,7 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
 			"request_id": req_id,
 			"status":     request.Status,
+			"node_id":    node.ID,
 			"api_key":    plainKey,
 		})
 
@@ -266,5 +309,48 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"request_id": req_id,
 		"status":     request.Status,
+	})
+}
+
+func Heartbeat(c *fiber.Ctx) error {
+	nodeID := c.Locals("node_id").(uint)
+
+	var node models.Node
+	if err := database.DB.First(&node, nodeID).Error; err != nil {
+		logger.Error("Node not found for heartbeat: ", "error", err)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Node not found",
+		})
+	}
+
+	now := time.Now()
+	node.LastSeenAt = &now
+	if node.Status != models.NodeStatusActive {
+		node.Status = models.NodeStatusActive
+	}
+	if err := database.DB.Save(&node).Error; err != nil {
+		logger.Error("Failed to update node heartbeat: ", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update heartbeat",
+		})
+	}
+
+	logger.Debug("Heartbeat received from node", "node_id", nodeID)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Heartbeat received",
+	})
+}
+
+func ListAgentEnrollmentRequests(c *fiber.Ctx) error {
+	var requests []models.NodeEnrollmentRequest
+	if err := database.DB.Preload("ApprovedBy").Find(&requests).Error; err != nil {
+		logger.Error("Failed to list enrollment requests: ", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to list enrollment requests",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"enrollment_requests": requests,
 	})
 }

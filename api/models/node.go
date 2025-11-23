@@ -32,9 +32,10 @@ type Node struct {
 	Role     NodeRole `json:"role" gorm:"not null"`
 
 	// Network identity
-	PublicIP string `json:"public_ip" gorm:"not null"`
-	Provider string `json:"provider" gorm:"not null"`
-	OS       string `json:"os" gorm:"not null"`
+	PublicIP     string `json:"public_ip" gorm:"not null"`
+	ManagementIP string `json:"management_ip,omitempty"`
+	Provider     string `json:"provider" gorm:"not null"`
+	OS           string `json:"os" gorm:"not null"`
 
 	// Metadata (future use - not for Kubernetes, but for Gluon node organization)
 	Labels datatypes.JSON `json:"labels,omitempty"` // Custom labels for filtering/organization

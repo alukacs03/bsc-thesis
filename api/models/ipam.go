@@ -1,6 +1,8 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 type IPPoolKind string
 
@@ -33,6 +35,6 @@ type IPAllocation struct {
 	InterfaceID *uint               `json:"interface_id,omitempty" gorm:"index"`
 	Interface   *WireGuardInterface `json:"interface,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	Value   string `json:"value" gorm:"not null;unique"` // e.g., "10.0.0.5/32" or "172.31.253.154/30"
+	IP      string `json:"value" gorm:"not null;unique"` // e.g., "10.0.0.5/32" or "172.31.253.154/30"
 	Purpose string `json:"purpose" gorm:"not null"`      // e.g., "wg_interface", "dummy", "reserve"
 }

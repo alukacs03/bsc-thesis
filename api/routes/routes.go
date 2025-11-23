@@ -25,22 +25,30 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/api/login", controllers.Login)
 	app.Get("/api/user", controllers.User)
 	app.Post("/api/logout", controllers.Logout)
-	app.Post("/api/enrollAgent", controllers.RequestEnrollment)
-	app.Post("/api/checkAgentEnrollmentStatus", controllers.CheckAgentEnrollmentStatus)
+	app.Post("/api/agent/enroll", controllers.RequestEnrollment)
+	app.Post("/api/agent/enroll/status", controllers.CheckAgentEnrollmentStatus)
 
-	// Protected routes under this
-	app.Use(jwtware.New(jwtware.Config{
+	admin := app.Group("/api/admin")
+	// Protected routes for admin users
+	admin.Use(jwtware.New(jwtware.Config{
 		SigningKey:  jwtware.SigningKey{Key: []byte(secretKey)},
 		TokenLookup: "cookie:jwt",
 	}))
 
-	app.Post("/api/modifyRegistrationRequest", controllers.ModifyUserRegistration)
-	app.Post("/api/deleteUser", controllers.DeleteUser)
-	app.Get("/api/userRegRequests", controllers.ListUserRegRequests)
-	app.Post("/api/generateAPIKey", controllers.GenerateAPIKey)
-	app.Post("/api/acceptAgentEnrollment", controllers.AcceptAgentEnrollment)
+	admin.Post("modifyRegistrationRequest", controllers.ModifyUserRegistration)
+	admin.Post("deleteUser", controllers.DeleteUser)
+	admin.Get("userRegRequests", controllers.ListUserRegRequests)
+	admin.Post("generateAPIKey", controllers.GenerateAPIKey)
+	admin.Post("enrollments/:id/approve", controllers.AcceptAgentEnrollment)
+	admin.Post("enrollments/:id/reject", controllers.RejectAgentEnrollment)
+	admin.Get("enrollments", controllers.ListAgentEnrollmentRequests)
+	admin.Get("nodes", controllers.ListNodes)
+	admin.Get("nodes/:id", controllers.GetNode)
+	admin.Delete("nodes/:id", controllers.DeleteNode)
+	admin.Post("revokeApiKey", controllers.RevokeAPIKey)
 
+	// API key protected routes for agents
 	agent := app.Group("/api/agent")
 	agent.Use(middleware.APIKeyAuth())
-	agent.Post("/status", controllers.AgentStatus)
+	agent.Post("heartbeat", controllers.Heartbeat)
 }

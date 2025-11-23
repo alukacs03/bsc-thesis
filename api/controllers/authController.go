@@ -443,6 +443,31 @@ func GenerateAPIKey(c *fiber.Ctx) error {
 	})
 }
 
+func RevokeAPIKey(c *fiber.Ctx) error {
+	key_id := c.Params("id")
+	logger.Info("Revoking API key with ID: ", key_id)
+	err := database.DB.Delete(&models.APIKey{}, key_id).Error
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to revoke API key",
+		})
+	}
+
+	user, err := getUserFromToken(c)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve user from token",
+		})
+	}
+	logger.Audit(c, "Revoking API key", &user.ID, "revoke_api_key", "api_key", map[string]interface{}{
+		"key_id": key_id,
+	})
+
+	return c.JSON(fiber.Map{
+		"message": "API key revoked successfully",
+	})
+}
+
 func getUserFromToken(c *fiber.Ctx) (*models.User, error) {
 	token := c.Locals("user").(*jwt.Token)
 	claims := token.Claims.(jwt.MapClaims)
