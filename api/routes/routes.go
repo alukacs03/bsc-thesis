@@ -13,7 +13,6 @@ import (
 var secretKey = func() string {
 	s := os.Getenv("SECRET_KEY")
 	if s == "" {
-		// default for development only; set SECRET_KEY in environment in production
 		s = "default_secret"
 	}
 	return s
@@ -29,7 +28,6 @@ func SetupRoutes(app *fiber.App) {
 	app.Post("/api/agent/enroll/status", controllers.CheckAgentEnrollmentStatus)
 
 	admin := app.Group("/api/admin")
-	// Protected routes for admin users
 	admin.Use(jwtware.New(jwtware.Config{
 		SigningKey:  jwtware.SigningKey{Key: []byte(secretKey)},
 		TokenLookup: "cookie:jwt",
@@ -47,8 +45,22 @@ func SetupRoutes(app *fiber.App) {
 	admin.Delete("nodes/:id", controllers.DeleteNode)
 	admin.Post("revokeApiKey", controllers.RevokeAPIKey)
 
-	// API key protected routes for agents
 	agent := app.Group("/api/agent")
 	agent.Use(middleware.APIKeyAuth())
 	agent.Post("heartbeat", controllers.Heartbeat)
+
+	agent.Get("network/info", controllers.GetNetworkInfo)
+	agent.Post("network/keys", controllers.UploadPublicKeys)
+	agent.Get("config", controllers.GetConfig)
+	agent.Post("config/applied", controllers.ReportConfigApplied)
+
+	admin.Get("ipam/pools", controllers.ListIPPools)
+	admin.Post("ipam/pools", controllers.AddIPPool)
+	admin.Delete("ipam/pools/:id", controllers.DeleteIPPool)
+	admin.Get("ipam/allocations", controllers.ListIPAllocations)
+	admin.Post("ipam/allocations", controllers.AllocateIP)
+	admin.Delete("ipam/allocations/:id", controllers.DeallocateIP)
+	admin.Get("ipam/allocations/:id", controllers.GetIPAllocation)
+	admin.Get("ipam/pools/:id/next", controllers.GetNextAvailableIP)
+	admin.Post("ipam/pools/:id/allocate-next", controllers.AllocateNextAvailableIP)
 }

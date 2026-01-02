@@ -8,21 +8,18 @@ import (
 )
 
 type Config struct {
-	APIURL      string `json:"api_url"`
-	APIKey      string `json:"api_key"`
-	NodeID      string `json:"node_id"`
-	RequestID   string `json:"request_id"`
-	Hostname    string `json:"hostname"`
-	Provider    string `json:"provider"`
-	OS          string `json:"os"`
-	DesiredRole string `json:"desired_role"`
+	APIURL           string `json:"api_url"`
+	APIKey           string `json:"api_key"`
+	NodeID           string `json:"node_id"`
+	RequestID        string `json:"request_id"`
+	EnrollmentSecret string `json:"enrollment_secret"`
+	Hostname         string `json:"hostname"`
+	Provider         string `json:"provider"`
+	OS               string `json:"os"`
+	DesiredRole      string `json:"desired_role"`
 }
 
 func Load(path string) (*Config, error) {
-	// create defaults
-	// before everything starts NodeID, APIKey, RequestID are surely empty
-	// the rest can be set, OR we can gather the info by default --> we are running debian (12 or 13)
-	// at first, try to load from agent.conf
 	var osystem string
 	cmd := exec.Command("lsb_release", "-si")
 	output, err := cmd.Output()
@@ -86,5 +83,5 @@ func (c *Config) IsEnrolled() bool {
 }
 
 func (c *Config) HasPendingEnrollment() bool {
-	return c.RequestID != "" && c.APIKey == ""
+	return c.RequestID != "" && c.EnrollmentSecret != "" && c.APIKey == ""
 }

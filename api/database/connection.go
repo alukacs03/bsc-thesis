@@ -3,7 +3,7 @@ package database
 import (
 	"gluon-api/models"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -16,32 +16,27 @@ func ConnectDB() (*gorm.DB, error) {
 	}
 	DB = db
 
-	// Run migrations for all models
-	// Order matters: parent tables before child tables (for foreign keys)
 	err = db.AutoMigrate(
-		// Core models
 		&models.User{},
 
-		// User enrollment
 		&models.UserRegistrationRequest{},
 
-		// IPAM
 		&models.IPPool{},
 		&models.IPAllocation{},
+		&models.LinkAllocation{},
 
-		// Node enrollment and management
 		&models.NodeEnrollmentRequest{},
 		&models.Node{},
+		&models.WireGuardInterface{},
 		&models.NodePeer{},
 
-		// Authentication
+		&models.NodeConfig{},
+
 		&models.APIKey{},
 
-		// Configuration profiles
 		&models.WireGuardProfile{},
 		&models.OSPFProfile{},
 
-		// Logging
 		&models.AuditLog{},
 		&models.Event{},
 	)

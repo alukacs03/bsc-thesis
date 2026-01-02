@@ -1,14 +1,19 @@
 package controllers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/models"
+	"gluon-api/services"
 	"gluon-api/utils"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func AgentStatus(c *fiber.Ctx) error {
@@ -56,14 +61,32 @@ func RequestEnrollment(c *fiber.Ctx) error {
 		}
 	}
 
+	plainSecret, err := utils.GenerateEnrollmentSecret()
+	if err != nil {
+		logger.Error("Failed to generate enrollment secret: ", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate enrollment secret",
+		})
+	}
+
+	secretHash, secretHashIndex, err := utils.HashEnrollmentSecret(plainSecret)
+	if err != nil {
+		logger.Error("Failed to hash enrollment secret: ", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to process enrollment secret",
+		})
+	}
+
 	req := models.NodeEnrollmentRequest{
-		Hostname:    raw["hostname"].(string),
-		PublicIP:    c.IP(),
-		Provider:    raw["provider"].(string),
-		OS:          raw["os"].(string),
-		DesiredRole: models.NodeRole(raw["desired_role"].(string)),
-		RequestedAt: time.Now(),
-		Status:      "pending",
+		Hostname:        raw["hostname"].(string),
+		PublicIP:        c.IP(),
+		Provider:        raw["provider"].(string),
+		OS:              raw["os"].(string),
+		DesiredRole:     models.NodeRole(raw["desired_role"].(string)),
+		RequestedAt:     time.Now(),
+		Status:          "pending",
+		SecretHash:      secretHash,
+		SecretHashIndex: secretHashIndex,
 	}
 
 	logger.Info("Enrollment request details", "hostname", req.Hostname, "public_ip", req.PublicIP, "provider", req.Provider, "os", req.OS, "desired_role", req.DesiredRole)
@@ -82,7 +105,6 @@ func RequestEnrollment(c *fiber.Ctx) error {
 		})
 	}
 
-	// save to db
 	if err := database.DB.Create(&req).Error; err != nil {
 		logger.Error("Failed to save enrollment request: ", "error", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -92,8 +114,10 @@ func RequestEnrollment(c *fiber.Ctx) error {
 	logger.Info("Enrollment request saved", "request_id", req.ID)
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message":    "Enrollment request received",
-		"request_id": req.ID,
+		"message":           "Enrollment request received",
+		"request_id":        req.ID,
+		"status":            req.Status,
+		"enrollment_secret": plainSecret,
 	})
 }
 
@@ -128,7 +152,6 @@ func AcceptAgentEnrollment(c *fiber.Ctx) error {
 			"error": "Failed to update enrollment request status",
 		})
 	}
-	// audit log
 	user, err := getUserFromToken(c)
 	if err != nil {
 		return err
@@ -137,10 +160,9 @@ func AcceptAgentEnrollment(c *fiber.Ctx) error {
 	logger.Audit(c, "Accepted enrollment request", &uid, "accept_enrollment_request", "node_enrollment_request", map[string]any{
 		"request_id": req_id,
 	})
-	// create node
 	node := models.Node{
 		Hostname:            request.Hostname,
-		Role:                models.NodeRole("worker"),
+		Role:                request.DesiredRole,
 		PublicIP:            request.PublicIP,
 		Provider:            request.Provider,
 		OS:                  request.OS,
@@ -152,7 +174,13 @@ func AcceptAgentEnrollment(c *fiber.Ctx) error {
 		logger.Error("Failed to create node from enrollment request: ", "error", err)
 		return err
 	}
-	// Safely set ApprovedBy and ApprovedAt
+
+	if err := services.SetupNodeNetworking(&node); err != nil {
+		logger.Error("Failed to setup networking for node: ", "error", err, "node_id", node.ID)
+	} else {
+		logger.Info("Networking setup completed for node", "node_id", node.ID)
+	}
+
 	request.ApprovedBy = user
 	now := time.Now()
 	request.ApprovedAt = &now
@@ -200,7 +228,6 @@ func RejectAgentEnrollment(c *fiber.Ctx) error {
 			"error": "Failed to update enrollment request status",
 		})
 	}
-	// audit log
 	user, err := getUserFromToken(c)
 	if err != nil {
 		return err
@@ -218,8 +245,10 @@ func RejectAgentEnrollment(c *fiber.Ctx) error {
 
 func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 	type enrollmentStatusInput struct {
-		RequestID uint `json:"request_id"`
+		RequestID        uint   `json:"request_id"`
+		EnrollmentSecret string `json:"enrollment_secret"`
 	}
+
 	var input enrollmentStatusInput
 	if err := c.BodyParser(&input); err != nil {
 		logger.Error("Failed to parse enrollment status request: ", "error", err)
@@ -227,13 +256,33 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 			"error": "Invalid JSON payload",
 		})
 	}
-	req_id := input.RequestID
+
+	if input.RequestID == 0 || input.EnrollmentSecret == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Missing request_id or enrollment_secret",
+		})
+	}
+	if !strings.HasPrefix(input.EnrollmentSecret, "es_") || len(input.EnrollmentSecret) != 67 {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid enrollment secret",
+		})
+	}
+
+	sha := sha256.Sum256([]byte(input.EnrollmentSecret))
+	hashIndex := hex.EncodeToString(sha[:8])
 
 	request := models.NodeEnrollmentRequest{}
-	if err := database.DB.First(&request, req_id).Error; err != nil {
-		logger.Error("Enrollment request not found: ", "error", err)
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Enrollment request not found",
+	if err := database.DB.Where("id = ? AND secret_hash_index = ?", input.RequestID, hashIndex).First(&request).Error; err != nil {
+		logger.Warn("Enrollment status lookup failed", "request_id", input.RequestID, "reason", "not_found_or_secret_mismatch")
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid enrollment secret",
+		})
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(request.SecretHash), []byte(input.EnrollmentSecret)); err != nil {
+		logger.Warn("Enrollment secret mismatch", "request_id", input.RequestID)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid enrollment secret",
 		})
 	}
 
@@ -241,7 +290,7 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 		var existingAPIKey models.APIKey
 		if err := database.DB.Where("node_id = ?", *request.ConvertedNodeID).First(&existingAPIKey).Error; err == nil {
 			return c.Status(fiber.StatusOK).JSON(fiber.Map{
-				"request_id": req_id,
+				"request_id": input.RequestID,
 				"status":     request.Status,
 			})
 		}
@@ -298,16 +347,15 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 		)
 
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"request_id": req_id,
+			"request_id": input.RequestID,
 			"status":     request.Status,
 			"node_id":    node.ID,
 			"api_key":    plainKey,
 		})
-
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"request_id": req_id,
+		"request_id": input.RequestID,
 		"status":     request.Status,
 	})
 }
@@ -339,6 +387,7 @@ func Heartbeat(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Heartbeat received",
 	})
+
 }
 
 func ListAgentEnrollmentRequests(c *fiber.Ctx) error {

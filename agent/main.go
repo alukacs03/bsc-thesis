@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"gluon-agent/applier"
 	"gluon-agent/client"
 	"gluon-agent/config"
+	"gluon-agent/keys"
+	"gluon-agent/pkgmgr"
 	"log"
 	"os"
 	"os/signal"
@@ -18,52 +22,50 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Determine config path
 	configPath := getConfigPath()
 	log.Printf("Using config file: %s", configPath)
 
-	// Load configuration
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Ensure API URL is set
 	if cfg.APIURL == "" {
 		cfg.APIURL = getEnvOrDefault("GLUON_API_URL", "http://localhost:3000")
 		log.Printf("API URL not in config, using: %s", cfg.APIURL)
 	}
 
+	if err := pkgmgr.EnsureDependencies(ctx); err != nil {
+		log.Fatalf("Dependency check failed: %v", err)
+	}
+
 	log.Printf("System info: hostname=%s, os=%s, provider=%s", cfg.Hostname, cfg.OS, cfg.Provider)
 
-	// Create API client
 	apiClient := client.New(cfg.APIURL)
 
-	// Check enrollment status
 	if cfg.IsEnrolled() {
 		log.Printf("Agent already enrolled (node_id=%s)", cfg.NodeID)
 	} else if cfg.HasPendingEnrollment() {
-		// Resume polling for existing enrollment request
 		requestID, err := strconv.Atoi(cfg.RequestID)
 		if err != nil {
 			log.Fatalf("Invalid request_id in config: %v", err)
+		}
+		if cfg.EnrollmentSecret == "" {
+			log.Fatalf("Enrollment secret missing for pending request_id=%d", requestID)
 		}
 
 		log.Printf("Resuming enrollment polling for request_id=%d", requestID)
 		log.Println("Waiting for admin approval...")
 
-		// Poll for approval
 		if err := pollForApproval(ctx, apiClient, uint(requestID), cfg, configPath); err != nil {
 			log.Fatalf("Enrollment failed: %v", err)
 		}
 
 		log.Printf("Enrollment successful! Node ID: %s", cfg.NodeID)
 	} else {
-		// No enrollment request exists - create new one
 		log.Println("Agent not enrolled, starting enrollment process...")
 
-		// Request enrollment using config values
-		requestID, err := apiClient.RequestEnrollment(
+		requestID, enrollmentSecret, err := apiClient.RequestEnrollment(
 			cfg.Hostname,
 			cfg.Provider,
 			cfg.OS,
@@ -74,6 +76,7 @@ func main() {
 		}
 
 		cfg.RequestID = strconv.Itoa(int(requestID))
+		cfg.EnrollmentSecret = enrollmentSecret
 		if err := cfg.Save(configPath); err != nil {
 			log.Printf("Warning: Failed to save request_id to config: %v", err)
 		}
@@ -81,7 +84,6 @@ func main() {
 		log.Printf("Enrollment requested, request_id=%d", requestID)
 		log.Println("Waiting for admin approval...")
 
-		// Poll for approval
 		if err := pollForApproval(ctx, apiClient, requestID, cfg, configPath); err != nil {
 			log.Fatalf("Enrollment failed: %v", err)
 		}
@@ -89,38 +91,62 @@ func main() {
 		log.Printf("Enrollment successful! Node ID: %s", cfg.NodeID)
 	}
 
-	// Start heartbeat loop
 	log.Println("Starting heartbeat loop (30s interval)...")
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	defer heartbeatTicker.Stop()
 
-	// Send initial heartbeat
-	if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
-		log.Printf("Initial heartbeat failed: %v", err)
-	} else {
-		log.Println("Initial heartbeat sent successfully")
-	}
+	go func() {
+		if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
+			log.Printf("Initial heartbeat failed: %v", err)
+		} else {
+			log.Println("Initial heartbeat sent successfully")
+		}
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Shutdown signal received, exiting...")
-			return
-
-		case <-heartbeatTicker.C:
-			if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
-				log.Printf("Heartbeat failed: %v", err)
-			} else {
-				log.Println("Heartbeat sent")
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Heartbeat goroutine exiting...")
+				return
+			case <-heartbeatTicker.C:
+				if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
+					log.Printf("Heartbeat failed: %v", err)
+				} else {
+					log.Println("Heartbeat sent")
+				}
 			}
 		}
-	}
+	}()
+
+	log.Println("Starting config sync loop (60s interval)...")
+	configTicker := time.NewTicker(60 * time.Second)
+	defer configTicker.Stop()
+
+	go func() {
+		syncConfig(apiClient, cfg.APIKey)
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Config sync goroutine exiting...")
+				return
+			case <-configTicker.C:
+				syncConfig(apiClient, cfg.APIKey)
+			}
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutdown signal received, exiting...")
+
 }
 
-// pollForApproval polls the enrollment status until approved or rejected
 func pollForApproval(ctx context.Context, apiClient *client.Client, requestID uint, cfg *config.Config, configPath string) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+
+	if cfg.EnrollmentSecret == "" {
+		return errors.New("enrollment secret not set in config")
+	}
 
 	for {
 		select {
@@ -128,8 +154,11 @@ func pollForApproval(ctx context.Context, apiClient *client.Client, requestID ui
 			return ctx.Err()
 
 		case <-ticker.C:
-			status, nodeID, apiKey, err := apiClient.CheckEnrollmentStatus(requestID)
+			status, nodeID, apiKey, err := apiClient.CheckEnrollmentStatus(requestID, cfg.EnrollmentSecret)
 			if err != nil {
+				if errors.Is(err, client.ErrInvalidEnrollmentSecret) {
+					return err
+				}
 				log.Printf("Status check failed: %v", err)
 				continue
 			}
@@ -139,7 +168,6 @@ func pollForApproval(ctx context.Context, apiClient *client.Client, requestID ui
 			switch status {
 			case "accepted":
 				if apiKey != "" && nodeID > 0 {
-					// First time receiving approval - save API key and node ID
 					cfg.APIKey = apiKey
 					cfg.NodeID = strconv.Itoa(int(nodeID))
 					if err := cfg.Save(configPath); err != nil {
@@ -148,7 +176,6 @@ func pollForApproval(ctx context.Context, apiClient *client.Client, requestID ui
 					log.Printf("API key received and saved! Node ID: %d", nodeID)
 					return nil
 				}
-				// Already enrolled, API key not returned again
 				log.Println("Already enrolled (API key previously received)")
 				return nil
 
@@ -156,7 +183,6 @@ func pollForApproval(ctx context.Context, apiClient *client.Client, requestID ui
 				return nil
 
 			case "pending":
-				// Keep polling
 				continue
 
 			default:
@@ -166,26 +192,80 @@ func pollForApproval(ctx context.Context, apiClient *client.Client, requestID ui
 	}
 }
 
-// getConfigPath determines the config file location
 func getConfigPath() string {
-	// Check environment variable first
 	if path := os.Getenv("GLUON_CONFIG"); path != "" {
 		return path
 	}
 
-	// Check if /etc/gluon exists (production)
 	if stat, err := os.Stat("/etc/gluon"); err == nil && stat.IsDir() {
 		return "/etc/gluon/agent.conf"
 	}
 
-	// Default to current directory (development)
 	return "./agent.conf"
 }
 
-// getEnvOrDefault gets environment variable or returns default
 func getEnvOrDefault(key, defaultValue string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
 	}
 	return defaultValue
+}
+
+func syncConfig(apiClient *client.Client, apiKey string) {
+	log.Println("Syncing configuration...")
+
+	networkInfo, err := apiClient.GetNetworkInfo(apiKey)
+	if err != nil {
+		log.Printf("Failed to get network info: %v", err)
+		return
+	}
+
+	if len(networkInfo.RequiredInterfaces) == 0 {
+		log.Println("No network interfaces configured yet")
+		return
+	}
+
+	log.Printf("Required interfaces: %v", networkInfo.RequiredInterfaces)
+
+	pubKeys, err := keys.EnsureKeys(networkInfo.RequiredInterfaces)
+	if err != nil {
+		log.Printf("Failed to ensure keys: %v", err)
+		return
+	}
+
+	if err := apiClient.UploadPublicKeys(apiKey, pubKeys); err != nil {
+		log.Printf("Failed to upload public keys: %v", err)
+		return
+	}
+	log.Printf("Uploaded %d public keys", len(pubKeys))
+
+	configBundle, err := apiClient.GetConfig(apiKey)
+	if err != nil {
+		log.Printf("Failed to get config: %v", err)
+		return
+	}
+
+	state, err := applier.LoadState()
+	if err != nil {
+		log.Printf("Failed to load state: %v", err)
+		state = &applier.ConfigState{Version: 0}
+	}
+
+	if !applier.NeedsUpdate(configBundle, state) {
+		log.Printf("Config is up to date (version %d)", state.Version)
+		return
+	}
+
+	log.Printf("Config update needed: current=%d, new=%d", state.Version, configBundle.Version)
+
+	if err := applier.ApplyConfig(configBundle); err != nil {
+		log.Printf("Failed to apply config: %v", err)
+		return
+	}
+
+	if err := apiClient.ReportConfigApplied(apiKey, configBundle.Version, configBundle.Hash); err != nil {
+		log.Printf("Failed to report config applied: %v", err)
+	}
+
+	log.Println("Config sync completed successfully")
 }

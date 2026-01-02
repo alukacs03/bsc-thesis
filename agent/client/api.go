@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 const (
 	AgentVersion = "0.0.1"
 )
+
+var ErrInvalidEnrollmentSecret = errors.New("invalid enrollment secret")
 
 type Client struct {
 	BaseURL    string
@@ -30,9 +33,7 @@ func New(baseURL string) *Client {
 	}
 }
 
-// RequestEnrollment sends enrollment request to API
-// POST /api/agent/enroll
-func (c *Client) RequestEnrollment(hostname, provider, os, desiredRole string) (uint, error) {
+func (c *Client) RequestEnrollment(hostname, provider, os, desiredRole string) (uint, string, error) {
 	payload := map[string]string{
 		"hostname":     hostname,
 		"provider":     provider,
@@ -42,12 +43,12 @@ func (c *Client) RequestEnrollment(hostname, provider, os, desiredRole string) (
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return 0, fmt.Errorf("failed to marshal request: %w", err)
+		return 0, "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/enroll", bytes.NewBuffer(body))
 	if err != nil {
-		return 0, fmt.Errorf("failed to create request: %w", err)
+		return 0, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -55,32 +56,32 @@ func (c *Client) RequestEnrollment(hostname, provider, os, desiredRole string) (
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("failed to send request: %w", err)
+		return 0, "", fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("enrollment failed: %s - %s", resp.Status, string(bodyBytes))
+		return 0, "", fmt.Errorf("enrollment failed: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var result struct {
-		RequestID uint   `json:"request_id"`
-		Message   string `json:"message"`
+		RequestID        uint   `json:"request_id"`
+		Message          string `json:"message"`
+		EnrollmentSecret string `json:"enrollment_secret"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, fmt.Errorf("failed to decode response: %w", err)
+		return 0, "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return result.RequestID, nil
+	return result.RequestID, result.EnrollmentSecret, nil
 }
 
-// CheckEnrollmentStatus polls for enrollment approval
-// POST /api/agent/enroll/status
-func (c *Client) CheckEnrollmentStatus(requestID uint) (status string, nodeID uint, apiKey string, err error) {
-	payload := map[string]uint{
-		"request_id": requestID,
+func (c *Client) CheckEnrollmentStatus(requestID uint, enrollmentSecret string) (status string, nodeID uint, apiKey string, err error) {
+	payload := map[string]interface{}{
+		"request_id":        requestID,
+		"enrollment_secret": enrollmentSecret,
 	}
 
 	body, err := json.Marshal(payload)
@@ -102,6 +103,9 @@ func (c *Client) CheckEnrollmentStatus(requestID uint) (status string, nodeID ui
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", 0, "", ErrInvalidEnrollmentSecret
+	}
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return "", 0, "", fmt.Errorf("status check failed: %s - %s", resp.Status, string(bodyBytes))
@@ -121,9 +125,6 @@ func (c *Client) CheckEnrollmentStatus(requestID uint) (status string, nodeID ui
 	return result.Status, result.NodeID, result.APIKey, nil
 }
 
-// Heartbeat sends heartbeat to API
-// POST /api/agent/heartbeat
-// Requires Authorization header with API key
 func (c *Client) Heartbeat(apiKey string) error {
 	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/heartbeat", nil)
 	if err != nil {
@@ -147,6 +148,143 @@ func (c *Client) Heartbeat(apiKey string) error {
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("heartbeat failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	return nil
+}
+
+type NetworkInfo struct {
+	NodeID             uint     `json:"node_id"`
+	Role               string   `json:"role"`
+	RequiredInterfaces []string `json:"required_interfaces"`
+}
+
+func (c *Client) GetNetworkInfo(apiKey string) (*NetworkInfo, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+"/api/agent/network/info", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get network info failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	var result NetworkInfo
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+func (c *Client) UploadPublicKeys(apiKey string, keys map[string]string) error {
+	payload := map[string]interface{}{
+		"keys": keys,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/network/keys", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("upload keys failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	return nil
+}
+
+type ConfigBundle struct {
+	Version              int               `json:"version"`
+	Hash                 string            `json:"hash"`
+	WireGuardConfigs     map[string]string `json:"wireguard_configs"`
+	NetworkInterfaceFile string            `json:"network_interface_file"`
+	FRRConfigFile        string            `json:"frr_config_file"`
+}
+
+func (c *Client) GetConfig(apiKey string) (*ConfigBundle, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+"/api/agent/config", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get config failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	var result ConfigBundle
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+func (c *Client) ReportConfigApplied(apiKey string, version int, hash string) error {
+	payload := map[string]interface{}{
+		"version": version,
+		"hash":    hash,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/config/applied", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("report config applied failed: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	return nil

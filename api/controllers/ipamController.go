@@ -17,7 +17,6 @@ func AddIPPool(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate CIDR string
 	if _, err := netip.ParsePrefix(pool.CIDR); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid CIDR",
@@ -71,10 +70,8 @@ func AllocateIP(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate IP string (can be either "10.0.0.5" or "10.0.0.5/32")
 	ipStr := allocation.IP
 	if _, err := netip.ParsePrefix(ipStr); err != nil {
-		// Try parsing as plain address
 		if _, err := netip.ParseAddr(ipStr); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid IP address",
@@ -134,18 +131,14 @@ func GetIPAllocation(c *fiber.Ctx) error {
 	return c.JSON(allocation)
 }
 
-// findNextAvailableIP returns the next available IP in the pool, or nil if none found.
 func findNextAvailableIP(cidrStr string, allocations []models.IPAllocation) (*string, error) {
-	// Parse CIDR string
 	prefix, err := netip.ParsePrefix(cidrStr)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build map of allocated IPs
 	allocated := make(map[netip.Addr]bool)
 	for _, alloc := range allocations {
-		// Parse IP string - handle both "10.0.0.5" and "10.0.0.5/32" formats
 		ipStr := alloc.IP
 		if addr, err := netip.ParseAddr(ipStr); err == nil {
 			allocated[addr] = true
@@ -154,7 +147,6 @@ func findNextAvailableIP(cidrStr string, allocations []models.IPAllocation) (*st
 		}
 	}
 
-	// Start from first address after network address to skip network address
 	addr := prefix.Addr().Next()
 	for prefix.Contains(addr) {
 		if !allocated[addr] {
@@ -175,7 +167,6 @@ func GetNextAvailableIP(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate CIDR string
 	if _, err := netip.ParsePrefix(pool.CIDR); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid CIDR",
@@ -208,7 +199,6 @@ func AllocateNextAvailableIP(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate CIDR string
 	if _, err := netip.ParsePrefix(pool.CIDR); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid CIDR",

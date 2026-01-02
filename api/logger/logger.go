@@ -1,6 +1,3 @@
-// custom logger only so that we can add db logging further down the line for audit logs
-// other than that, the basic slog logger is just called for everything one to one basically
-
 package logger
 
 import (
@@ -42,7 +39,6 @@ func Debug(msg string, args ...any) {
 
 func Audit(c *fiber.Ctx, msg string, actorID *uint, action string, entity string, args ...any) {
 	Logger.Info("AUDIT: "+msg, args...)
-	// save to db
 	db := database.DB
 	if db != nil {
 		details := map[string]interface{}{

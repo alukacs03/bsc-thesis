@@ -18,7 +18,6 @@ import (
 var secretKey = func() string {
 	s := os.Getenv("SECRET_KEY")
 	if s == "" {
-		// default for development only; set SECRET_KEY in environment in production
 		s = "default_secret"
 	}
 	return s
@@ -101,18 +100,6 @@ func Register(c *fiber.Ctx) error {
 		})
 	}
 
-	/*
-		user := models.User{
-			Name:     data["name"],
-			Email:    data["email"],
-			Password: hashedPassword,
-		}
-
-		if err := database.DB.Create(&user).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to create user",
-			})
-		}*/
 	return c.JSON(fiber.Map{
 		"message": "User Registration Request Created Successfully",
 	})

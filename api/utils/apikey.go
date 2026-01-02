@@ -42,7 +42,7 @@ func GetNodeIDFromAPIKeyHashIndex(hashIndex string) (uint, error) {
 		logger.Error("Database error while fetching API keys: ", err)
 	}
 	if len(candidates) == 0 {
-		return 0, nil // No matching API key found
+		return 0, nil
 	}
 	return candidates[0].NodeID, nil
 }
