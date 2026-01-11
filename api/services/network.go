@@ -6,6 +6,7 @@ import (
 	"gluon-api/logger"
 	"gluon-api/models"
 	"net/netip"
+	"sort"
 
 	"gorm.io/gorm"
 )
@@ -15,9 +16,9 @@ const (
 	DefaultHubToHubCIDR   = "10.255.4.0/24"
 	DefaultHub1WorkerCIDR = "10.255.8.0/22"
 	DefaultHub2WorkerCIDR = "10.255.12.0/22"
+	DefaultHub3WorkerCIDR = "10.255.16.0/22"
+	MaxHubs               = 3
 
-	
-	
 	DefaultKubernetesServiceCIDR = "10.96.0.0/16"
 )
 
@@ -32,6 +33,7 @@ func EnsureDefaultPools() error {
 		{models.IPPoolPurposeHubToHub, DefaultHubToHubCIDR, nil, models.IPPoolKindWireGuard},
 		{models.IPPoolPurposeHub1Worker, DefaultHub1WorkerCIDR, intPtr(1), models.IPPoolKindWireGuard},
 		{models.IPPoolPurposeHub2Worker, DefaultHub2WorkerCIDR, intPtr(2), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub3Worker, DefaultHub3WorkerCIDR, intPtr(3), models.IPPoolKindWireGuard},
 		{models.IPPoolPurposeKubernetesServices, DefaultKubernetesServiceCIDR, nil, models.IPPoolKindKubernetes},
 	}
 
@@ -62,6 +64,12 @@ func SetupNodeNetworking(node *models.Node) error {
 		return fmt.Errorf("failed to ensure default pools: %w", err)
 	}
 
+	if node.Role == models.NodeRoleHub {
+		if _, err := ensureHubNumber(node); err != nil {
+			return fmt.Errorf("failed to assign hub number: %w", err)
+		}
+	}
+
 	loopbackIP, err := allocateLoopbackIP(node)
 	if err != nil {
 		return fmt.Errorf("failed to allocate loopback IP: %w", err)
@@ -78,6 +86,19 @@ func SetupNodeNetworking(node *models.Node) error {
 		}
 	}
 
+	return nil
+}
+
+func AssignHubNumbers() error {
+	var hubs []models.Node
+	if err := database.DB.Where("role = ?", models.NodeRoleHub).Order("id asc").Find(&hubs).Error; err != nil {
+		return err
+	}
+	for i := range hubs {
+		if _, err := ensureHubNumber(&hubs[i]); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -127,9 +148,23 @@ func setupWorkerLinks(worker *models.Node) error {
 		return nil
 	}
 
-	for i, hub := range hubs {
-		hubNumber := i + 1
-		if err := createLink(&hub, worker, hubNumber); err != nil {
+	for i := range hubs {
+		if hubs[i].HubNumber == 0 {
+			if num, err := ensureHubNumber(&hubs[i]); err == nil {
+				hubs[i].HubNumber = num
+			} else {
+				return err
+			}
+		}
+	}
+	sort.Slice(hubs, func(i, j int) bool {
+		return hubs[i].HubNumber < hubs[j].HubNumber
+	})
+	for _, hub := range hubs {
+		if hub.HubNumber == 0 {
+			continue
+		}
+		if err := createLink(&hub, worker); err != nil {
 			return fmt.Errorf("failed to create link to hub %d: %w", hub.ID, err)
 		}
 	}
@@ -143,12 +178,23 @@ func setupHubLinks(hub *models.Node) error {
 		return err
 	}
 
-	hubNumber := len(existingHubs) + 1
-	if hubNumber > 2 {
-		return fmt.Errorf("only 2 hubs are supported, this would be hub #%d", hubNumber)
+	hubNumber := hub.HubNumber
+	if hubNumber == 0 {
+		if num, err := ensureHubNumber(hub); err != nil {
+			return err
+		} else {
+			hubNumber = num
+		}
 	}
 
 	for _, otherHub := range existingHubs {
+		if otherHub.HubNumber == 0 {
+			if num, err := ensureHubNumber(&otherHub); err == nil {
+				otherHub.HubNumber = num
+			} else {
+				return err
+			}
+		}
 		if err := createHubToHubLink(hub, &otherHub); err != nil {
 			return fmt.Errorf("failed to create hub-to-hub link: %w", err)
 		}
@@ -160,7 +206,7 @@ func setupHubLinks(hub *models.Node) error {
 	}
 
 	for _, worker := range workers {
-		if err := createLink(hub, &worker, hubNumber); err != nil {
+		if err := createLink(hub, &worker); err != nil {
 			return fmt.Errorf("failed to create link to worker %d: %w", worker.ID, err)
 		}
 	}
@@ -168,15 +214,25 @@ func setupHubLinks(hub *models.Node) error {
 	return nil
 }
 
-func createLink(hub *models.Node, worker *models.Node, hubNumber int) error {
+func createLink(hub *models.Node, worker *models.Node) error {
+	hubNumber := hub.HubNumber
+	if hubNumber < 1 || hubNumber > MaxHubs {
+		return fmt.Errorf("invalid hub number %d for hub %d", hubNumber, hub.ID)
+	}
+
 	hubListenPort := hubWorkerListenPort(hubNumber, worker.ID)
 	workerListenPort := 51820 + hubNumber - 1
 
 	var purpose models.IPPoolPurpose
-	if hubNumber == 1 {
+	switch hubNumber {
+	case 1:
 		purpose = models.IPPoolPurposeHub1Worker
-	} else {
+	case 2:
 		purpose = models.IPPoolPurposeHub2Worker
+	case 3:
+		purpose = models.IPPoolPurposeHub3Worker
+	default:
+		return fmt.Errorf("unsupported hub number %d", hubNumber)
 	}
 
 	var existingLink models.LinkAllocation
@@ -332,14 +388,18 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 		return err
 	}
 
-	hubToHubPort := 51822
+	if hubA.HubNumber == 0 || hubB.HubNumber == 0 {
+		return fmt.Errorf("missing hub number for hub-to-hub link")
+	}
+	hubAPort := hubToHubListenPort(hubA.HubNumber, hubB.HubNumber)
+	hubBPort := hubToHubListenPort(hubB.HubNumber, hubA.HubNumber)
 
 	hubAInterfaceName := fmt.Sprintf("wg-%s", hubB.Hostname)
 	hubAInterface := models.WireGuardInterface{
 		NodeID:     hubA.ID,
 		Name:       hubAInterfaceName,
 		Address:    hubAIP + "/31",
-		ListenPort: hubToHubPort,
+		ListenPort: hubAPort,
 		Status:     models.InterfaceStatusDown,
 	}
 	if err := database.DB.Create(&hubAInterface).Error; err != nil {
@@ -351,7 +411,7 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 		NodeID:     hubB.ID,
 		Name:       hubBInterfaceName,
 		Address:    hubBIP + "/31",
-		ListenPort: hubToHubPort,
+		ListenPort: hubBPort,
 		Status:     models.InterfaceStatusDown,
 	}
 	if err := database.DB.Create(&hubBInterface).Error; err != nil {
@@ -361,7 +421,7 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 	hubAPeer := models.NodePeer{
 		InterfaceID:         hubAInterface.ID,
 		PeerNodeID:          hubB.ID,
-		Endpoint:            fmt.Sprintf("%s:%d", hubB.PublicIP, hubToHubPort),
+		Endpoint:            fmt.Sprintf("%s:%d", hubB.PublicIP, hubBPort),
 		AllowedIPs:          fmt.Sprintf("%s, 10.255.0.0/24, 224.0.0.5/32", subnet),
 		PersistentKeepAlive: 0,
 		Status:              models.PeerStatusActive,
@@ -373,7 +433,7 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 	hubBPeer := models.NodePeer{
 		InterfaceID:         hubBInterface.ID,
 		PeerNodeID:          hubA.ID,
-		Endpoint:            fmt.Sprintf("%s:%d", hubA.PublicIP, hubToHubPort),
+		Endpoint:            fmt.Sprintf("%s:%d", hubA.PublicIP, hubAPort),
 		AllowedIPs:          fmt.Sprintf("%s, 10.255.0.0/24, 224.0.0.5/32", subnet),
 		PersistentKeepAlive: 0,
 		Status:              models.PeerStatusActive,
@@ -462,4 +522,54 @@ func intPtr(i int) *int {
 func hubWorkerListenPort(hubNumber int, workerID uint) int {
 	base := 52000 + (hubNumber-1)*1000
 	return base + int(workerID)
+}
+
+func hubToHubListenPort(localHubNumber int, remoteHubNumber int) int {
+	return 51820 + localHubNumber*10 + remoteHubNumber
+}
+
+func ensureHubNumber(node *models.Node) (int, error) {
+	if node.Role != models.NodeRoleHub {
+		return node.HubNumber, nil
+	}
+
+	var hubs []models.Node
+	if err := database.DB.Where("role = ?", models.NodeRoleHub).Order("id asc").Find(&hubs).Error; err != nil {
+		return 0, err
+	}
+
+	used := map[int]bool{}
+	for _, h := range hubs {
+		if h.HubNumber >= 1 && h.HubNumber <= MaxHubs {
+			used[h.HubNumber] = true
+		}
+	}
+
+	next := 1
+	for i := range hubs {
+		if hubs[i].HubNumber >= 1 && hubs[i].HubNumber <= MaxHubs {
+			continue
+		}
+		for used[next] && next <= MaxHubs {
+			next++
+		}
+		if next > MaxHubs {
+			return 0, fmt.Errorf("max hubs reached")
+		}
+		if err := database.DB.Model(&models.Node{}).Where("id = ?", hubs[i].ID).Update("hub_number", next).Error; err != nil {
+			return 0, err
+		}
+		hubs[i].HubNumber = next
+		used[next] = true
+		next++
+	}
+
+	for _, h := range hubs {
+		if h.ID == node.ID {
+			node.HubNumber = h.HubNumber
+			return h.HubNumber, nil
+		}
+	}
+
+	return node.HubNumber, nil
 }

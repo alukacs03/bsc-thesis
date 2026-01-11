@@ -29,6 +29,7 @@ type Node struct {
 
 	Hostname string   `json:"hostname" gorm:"not null"`
 	Role     NodeRole `json:"role" gorm:"not null"`
+	HubNumber int     `json:"hub_number" gorm:"not null;default:0"`
 
 	PublicIP     string `json:"public_ip" gorm:"not null"`
 	ManagementIP string `json:"management_ip,omitempty"`

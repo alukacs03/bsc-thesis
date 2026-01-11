@@ -18,6 +18,7 @@ const (
 	IPPoolPurposeHubToHub   IPPoolPurpose = "hub_to_hub"
 	IPPoolPurposeHub1Worker IPPoolPurpose = "hub1_worker"
 	IPPoolPurposeHub2Worker IPPoolPurpose = "hub2_worker"
+	IPPoolPurposeHub3Worker IPPoolPurpose = "hub3_worker"
 	IPPoolPurposeKubernetesServices IPPoolPurpose = "kubernetes_services"
 )
 

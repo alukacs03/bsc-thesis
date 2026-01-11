@@ -8,6 +8,7 @@ import (
 	"gluon-api/metrics"
 	"gluon-api/models"
 	"gluon-api/routes"
+	"gluon-api/services"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -26,6 +27,9 @@ func main() {
 	controllers.AddDemoUser()
 	startWorkerOfflineMonitor()
 	metrics.StartDatabaseMetrics(30 * time.Second)
+	if err := services.AssignHubNumbers(); err != nil {
+		logger.Error("Failed to assign hub numbers", "error", err)
+	}
 
 	logger.Info("Database connection successful")
 

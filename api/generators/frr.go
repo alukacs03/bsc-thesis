@@ -127,7 +127,7 @@ func GenerateFRRConfigForWorker(hostname string, loopbackIP string, hubInterface
 	return GenerateFRRConfig(config)
 }
 
-func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterface string, workerInterfaces []string) string {
+func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfaces []string, workerInterfaces []string) string {
 	interfaces := []OSPFInterface{
 		{
 			Name:    "dummy",
@@ -135,7 +135,10 @@ func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfa
 		},
 	}
 
-	if hubToHubInterface != "" {
+	for _, hubToHubInterface := range hubToHubInterfaces {
+		if strings.TrimSpace(hubToHubInterface) == "" {
+			continue
+		}
 		interfaces = append(interfaces, OSPFInterface{
 			Name:              hubToHubInterface,
 			Cost:              10,

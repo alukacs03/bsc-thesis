@@ -454,7 +454,7 @@ func Heartbeat(c *fiber.Ctx) error {
 				var hubCount int64
 				if err := database.DB.Model(&models.Node{}).Where("role = ?", models.NodeRoleHub).Count(&hubCount).Error; err != nil {
 					logger.Error("Failed to count hubs for promotion", "error", err, "node_id", node.ID)
-				} else if hubCount >= 2 {
+				} else if hubCount >= services.MaxHubs {
 					logger.Warn("Refusing to promote node to hub (max hubs reached)", "node_id", node.ID, "hub_count", hubCount)
 				} else {
 					if err := database.DB.Model(&models.Node{}).Where("id = ?", node.ID).Update("role", models.NodeRoleHub).Error; err != nil {

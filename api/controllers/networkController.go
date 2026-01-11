@@ -40,6 +40,7 @@ func GetNetworkInfo(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"node_id":             nodeID,
 		"role":                node.Role,
+		"hub_number":          node.HubNumber,
 		"required_interfaces": requiredInterfaces,
 	})
 }
@@ -302,16 +303,16 @@ func generateConfigBundle(node *models.Node) (*configBundle, error) {
 
 	var frrConfig string
 	if node.Role == models.NodeRoleHub {
-		var hubToHubInterface string
+		var hubToHubInterfaces []string
 		var workerInterfaces []string
 		for _, ifaceName := range frrInterfaceNames {
 			if hubLinkInterfaces[ifaceName] {
-				hubToHubInterface = ifaceName
+				hubToHubInterfaces = append(hubToHubInterfaces, ifaceName)
 			} else {
 				workerInterfaces = append(workerInterfaces, ifaceName)
 			}
 		}
-		frrConfig = generators.GenerateFRRConfigForHub(node.Hostname, loopbackIP, hubToHubInterface, workerInterfaces)
+		frrConfig = generators.GenerateFRRConfigForHub(node.Hostname, loopbackIP, hubToHubInterfaces, workerInterfaces)
 	} else {
 		frrConfig = generators.GenerateFRRConfigForWorker(node.Hostname, loopbackIP, frrInterfaceNames)
 	}
