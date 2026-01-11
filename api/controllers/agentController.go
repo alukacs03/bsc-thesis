@@ -537,7 +537,6 @@ func Heartbeat(c *fiber.Ctx) error {
 
 				updates := map[string]any{
 					"endpoint":          p.Endpoint,
-					"allowed_ips":       p.AllowedIPs,
 					"last_handshake_at": handshakeAt,
 					"rx_bytes":          p.RxBytes,
 					"tx_bytes":          p.TxBytes,

@@ -153,6 +153,14 @@ DECIDE:
 		return
 	case "join_control_plane":
 		if isJoined() {
+			if hasMissingKubeletConfig() {
+				log.Println("Kubernetes: corrupted state detected (kubelet config missing); resetting to rejoin cleanly")
+				if err := resetKubeadmState(ctx); err != nil {
+					log.Printf("Kubernetes reset failed: %v", err)
+					_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
+					return
+				}
+			}
 			if isControlPlaneNode() {
 				didReset := false
 				
@@ -224,8 +232,14 @@ DECIDE:
 		return
 	case "join_worker":
 		if isJoined() {
-			
-			
+			if hasMissingKubeletConfig() {
+				log.Println("Kubernetes: corrupted state detected (kubelet config missing); resetting to rejoin cleanly")
+				if err := resetKubeadmState(ctx); err != nil {
+					log.Printf("Kubernetes reset failed: %v", err)
+					_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
+					return
+				}
+			}
 			_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "joined_worker"})
 			return
 		} else if hasPartialKubeletState() {
@@ -368,11 +382,17 @@ func initCluster(ctx context.Context, task *client.KubernetesTask) (*initResult,
 
 	podCIDR := strings.TrimSpace(task.PodCIDR)
 	if podCIDR == "" {
-		podCIDR = "10.244.0.0/16"
+		podCIDR = strings.TrimSpace(os.Getenv("GLUON_K8S_POD_CIDR"))
+		if podCIDR == "" {
+			podCIDR = "10.244.0.0/16"
+		}
 	}
 	serviceCIDR := strings.TrimSpace(task.ServiceCIDR)
 	if serviceCIDR == "" {
-		serviceCIDR = "10.96.0.0/16"
+		serviceCIDR = strings.TrimSpace(os.Getenv("GLUON_K8S_SERVICE_CIDR"))
+		if serviceCIDR == "" {
+			serviceCIDR = "10.96.0.0/16"
+		}
 	}
 
 	log.Printf("Initializing Kubernetes cluster (endpoint=%s podCIDR=%s serviceCIDR=%s)...", endpoint, podCIDR, serviceCIDR)
@@ -612,6 +632,16 @@ func hasPartialKubeletState() bool {
 	return false
 }
 
+func hasMissingKubeletConfig() bool {
+	if !isJoined() {
+		return false
+	}
+	if _, err := os.Stat("/var/lib/kubelet/config.yaml"); err != nil {
+		return true
+	}
+	return false
+}
+
 func ensureRootKubeconfig() error {
 	if _, err := os.Stat(adminConfPath); err != nil {
 		return err
@@ -810,9 +840,16 @@ func controlPlaneAdvertiseAddressMismatch(ctx context.Context) (bool, string, st
 	}
 
 	
-	overlayPool, _ := netip.ParsePrefix("10.255.0.0/16")
-	if addr, err := netip.ParseAddr(current); err == nil && !overlayPool.Contains(addr) {
-		return true, current, desired, nil
+	mgmtCIDR := strings.TrimSpace(os.Getenv("GLUON_LOOPBACK_CIDR"))
+	if mgmtCIDR == "" {
+		mgmtCIDR = strings.TrimSpace(os.Getenv("GLUON_MANAGEMENT_CIDR"))
+	}
+	if mgmtCIDR != "" {
+		if p, err := netip.ParsePrefix(mgmtCIDR); err == nil {
+			if addr, err := netip.ParseAddr(current); err == nil && !p.Contains(addr) {
+				return true, current, desired, nil
+			}
+		}
 	}
 	return strings.TrimSpace(current) != strings.TrimSpace(desired), current, desired, nil
 }
@@ -992,9 +1029,16 @@ func detectWireGuardAdvertiseAddress(ctx context.Context) (string, error) {
 		return v, nil
 	}
 
-	
-	loopbackPool, _ := netip.ParsePrefix("10.255.0.0/22")
-	overlayPool, _ := netip.ParsePrefix("10.255.0.0/16")
+	mgmtCIDR := strings.TrimSpace(os.Getenv("GLUON_LOOPBACK_CIDR"))
+	if mgmtCIDR == "" {
+		mgmtCIDR = strings.TrimSpace(os.Getenv("GLUON_MANAGEMENT_CIDR"))
+	}
+	var mgmtPrefix *netip.Prefix
+	if mgmtCIDR != "" {
+		if p, err := netip.ParsePrefix(mgmtCIDR); err == nil {
+			mgmtPrefix = &p
+		}
+	}
 
 	out, err := output(ctx, "ip", "-4", "-j", "addr", "show")
 	if err != nil {
@@ -1021,24 +1065,22 @@ func detectWireGuardAdvertiseAddress(ctx context.Context) (string, error) {
 			if err != nil {
 				continue
 			}
-			if !overlayPool.Contains(addr) {
+			if mgmtPrefix != nil && !mgmtPrefix.Contains(addr) {
 				continue
 			}
 
-			
 			score := 100
-			if loopbackPool.Contains(addr) {
+			if ai.PrefixLen == 32 {
 				score -= 50
 			}
-			if ai.PrefixLen == 32 {
-				score -= 30
-			}
-			
 			if strings.HasPrefix(e.IfName, "wg") {
 				score -= 10
 			}
 			if e.IfName == "lo" {
 				score -= 5
+			}
+			if e.IfName == "dummy" {
+				score -= 60
 			}
 
 			c := candidate{ip: addr.String(), score: score}
@@ -1050,7 +1092,7 @@ func detectWireGuardAdvertiseAddress(ctx context.Context) (string, error) {
 	}
 
 	if best == nil || best.ip == "" {
-		return "", fmt.Errorf("no WireGuard/overlay IP found on this node (expected 10.255.0.0/16)")
+		return "", fmt.Errorf("no WireGuard/overlay IP found on this node")
 	}
 	return best.ip, nil
 }

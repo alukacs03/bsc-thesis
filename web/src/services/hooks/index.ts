@@ -9,3 +9,4 @@ export * from './useNodeNetworking';
 export * from './useKubernetesCluster';
 export * from './useKubernetesWorkloads';
 export * from './useKubernetesNetworking';
+export * from './useDeploymentSettings';

@@ -3,7 +3,7 @@ import CardWithIcon from "@/components/CardWithIcon";
 import type { KubernetesClusterSummary } from "@/services/types/kubernetes";
 import type { Node } from "@/services/types/node";
 import { formatBytes } from "@/utils/format";
-import { CheckCircle2, AlertTriangle, Server, Network, Boxes } from "lucide-react";
+import { AlertTriangle, Network, Boxes, CheckCircle2, Server } from "lucide-react";
 
 export default function ClusterOverviewTab({
   cluster,
@@ -155,25 +155,6 @@ export default function ClusterOverviewTab({
         )}
       </CardContainer>
 
-      <CardContainer title="Single Cluster Mode" icon={<Server className="w-5 h-5" />}>
-        <div className="space-y-2">
-          <p className="text-sm text-slate-700">
-            Gluon currently manages exactly one Kubernetes cluster: the Gluon cluster itself.
-          </p>
-          <p className="text-sm text-slate-600">
-            Kubernetes objects (namespaces/workloads/services/events) will be added to the backend later.
-          </p>
-        </div>
-      </CardContainer>
-
-      <CardContainer title="Useful Now" icon={<CheckCircle2 className="w-5 h-5" />}>
-        <ul className="text-sm text-slate-600 list-disc pl-5">
-          <li>Use Nodes for host health/telemetry and agent logs</li>
-          <li>Use Networking for WireGuard + OSPF visibility</li>
-          <li>Disk telemetry: {formatBytes(diskUsed)} / {formatBytes(diskTotal)} used (aggregated)</li>
-          <li>Control-plane should match hubs (auto-healed)</li>
-        </ul>
-      </CardContainer>
     </div>
   );
 }

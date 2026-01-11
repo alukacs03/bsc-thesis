@@ -1,5 +1,6 @@
 interface NodeTableRowProps {
-    handleNodeClick : (nodeId : string) => void
+    handleNodeClick : (nodeId : number) => void
+    nodeId : number
     nodeName : string
     nodeIP : string
     nodeStatus : 'online' | 'offline' | 'degraded'
@@ -7,10 +8,10 @@ interface NodeTableRowProps {
     lastSeen : string
 }
 
-const NodeTableRow = ({ handleNodeClick, nodeName, nodeIP, nodeStatus, nodeRole, lastSeen }: NodeTableRowProps) => {
+const NodeTableRow = ({ handleNodeClick, nodeId, nodeName, nodeIP, nodeStatus, nodeRole, lastSeen }: NodeTableRowProps) => {
   return (
         <tr 
-            onClick={() => handleNodeClick('1')}
+            onClick={() => handleNodeClick(nodeId)}
             className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer transition-colors"
             >
             <td className="py-2 md:py-3 px-3 md:px-6 text-sm text-slate-700">{nodeName}</td>

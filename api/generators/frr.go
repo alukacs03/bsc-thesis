@@ -2,6 +2,7 @@ package generators
 
 import (
 	"fmt"
+	"gluon-api/config"
 	"strings"
 )
 
@@ -97,6 +98,7 @@ func GenerateFRRConfig(config FRRConfig) string {
 }
 
 func GenerateFRRConfigForWorker(hostname string, loopbackIP string, hubInterfaces []string) string {
+	cfg := config.Current()
 	interfaces := []OSPFInterface{
 		{
 			Name:    "dummy",
@@ -107,10 +109,10 @@ func GenerateFRRConfigForWorker(hostname string, loopbackIP string, hubInterface
 	for _, ifaceName := range hubInterfaces {
 		interfaces = append(interfaces, OSPFInterface{
 			Name:              ifaceName,
-			Cost:              10,
+			Cost:              cfg.OSPFWorkerToHubCost,
 			IsPointToPoint:    true,
-			HelloInterval:     1,
-			DeadInterval:      3,
+			HelloInterval:     cfg.OSPFHelloInterval,
+			DeadInterval:      cfg.OSPFDeadInterval,
 			PrefixSuppression: true,
 		})
 	}
@@ -121,13 +123,14 @@ func GenerateFRRConfigForWorker(hostname string, loopbackIP string, hubInterface
 		IsHub:      false,
 		LoopbackIP: loopbackIP,
 		Interfaces: interfaces,
-		OSPFArea:   10,
+		OSPFArea:   cfg.OSPFArea,
 	}
 
 	return GenerateFRRConfig(config)
 }
 
 func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfaces []string, workerInterfaces []string) string {
+	cfg := config.Current()
 	interfaces := []OSPFInterface{
 		{
 			Name:    "dummy",
@@ -141,7 +144,7 @@ func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfa
 		}
 		interfaces = append(interfaces, OSPFInterface{
 			Name:              hubToHubInterface,
-			Cost:              10,
+			Cost:              cfg.OSPFHubToHubCost,
 			IsPointToPoint:    true,
 			PrefixSuppression: true,
 		})
@@ -150,10 +153,10 @@ func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfa
 	for _, ifaceName := range workerInterfaces {
 		interfaces = append(interfaces, OSPFInterface{
 			Name:              ifaceName,
-			Cost:              100,
+			Cost:              cfg.OSPFHubToWorkerCost,
 			IsPointToPoint:    true,
-			HelloInterval:     1,
-			DeadInterval:      3,
+			HelloInterval:     cfg.OSPFHelloInterval,
+			DeadInterval:      cfg.OSPFDeadInterval,
 			PrefixSuppression: true,
 		})
 	}
@@ -164,7 +167,7 @@ func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfa
 		IsHub:      true,
 		LoopbackIP: loopbackIP,
 		Interfaces: interfaces,
-		OSPFArea:   10,
+		OSPFArea:   cfg.OSPFArea,
 	}
 
 	return GenerateFRRConfig(config)

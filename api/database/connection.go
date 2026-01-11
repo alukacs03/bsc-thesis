@@ -4,6 +4,7 @@ import (
 	"gluon-api/models"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -14,6 +15,8 @@ import (
 var DB *gorm.DB
 
 func ConnectDB() (*gorm.DB, error) {
+	dbPath := resolveDBPath()
+	log.Printf("Using database path: %s", dbPath)
 	gormLog := gormlogger.New(
 		log.New(os.Stdout, "", log.LstdFlags),
 		gormlogger.Config{
@@ -25,7 +28,7 @@ func ConnectDB() (*gorm.DB, error) {
 		},
 	)
 
-	db, err := gorm.Open(sqlite.Open("gluon.db"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: gormLog,
 	})
 	if err != nil {
@@ -70,6 +73,7 @@ func ConnectDB() (*gorm.DB, error) {
 		&models.OSPFProfile{},
 
 		&models.KubernetesCluster{},
+		&models.DeploymentSettings{},
 
 		&models.AuditLog{},
 		&models.Event{},
@@ -79,4 +83,14 @@ func ConnectDB() (*gorm.DB, error) {
 	}
 
 	return db, nil
+}
+
+func resolveDBPath() string {
+	if v := strings.TrimSpace(os.Getenv("GLUON_DB_PATH")); v != "" {
+		return v
+	}
+	if err := os.MkdirAll("/var/lib/gluon", 0755); err == nil {
+		return "/var/lib/gluon/gluon.db"
+	}
+	return "gluon.db"
 }

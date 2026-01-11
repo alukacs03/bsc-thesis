@@ -2,6 +2,7 @@ package main
 
 import (
 	"gluon-api/controllers"
+	"gluon-api/config"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/middleware"
@@ -18,10 +19,18 @@ import (
 func main() {
 	logger.Init()
 	logger.Info("Starting Gluon API server...")
+
+	if err := config.Load(); err != nil {
+		logger.Error("Failed to load config", "error", err)
+		panic(err)
+	}
 	_, err := database.ConnectDB()
 	if err != nil {
 		logger.Error("Failed to connect to database:", err)
 		panic("Failed to connect to database!")
+	}
+	if err := services.LoadDeploymentSettings(); err != nil {
+		logger.Error("Failed to load deployment settings", "error", err)
 	}
 
 	controllers.AddDemoUser()

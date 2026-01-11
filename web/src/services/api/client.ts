@@ -60,12 +60,19 @@ class APIClient {
         );
       }
 
-      // Handle 204 No Content
       if (response.status === 204) {
         return {} as T;
       }
 
-      return await response.json();
+      const bodyText = await response.text();
+      if (!bodyText) {
+        return {} as T;
+      }
+      try {
+        return JSON.parse(bodyText) as T;
+      } catch (err) {
+        throw new APIError('Invalid JSON response', response.status, bodyText);
+      }
     } catch (error) {
       if (error instanceof APIError) {
         throw error;
@@ -84,6 +91,13 @@ class APIClient {
   async post<T>(endpoint: string, data?: unknown): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
+  async put<T>(endpoint: string, data?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
       body: data ? JSON.stringify(data) : undefined,
     });
   }

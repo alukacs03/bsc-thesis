@@ -6,3 +6,4 @@ export * from './enrollment';
 export * from './ipam';
 export * from './user';
 export * from './kubernetes';
+export * from './settings';

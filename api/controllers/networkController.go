@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gluon-api/database"
 	"gluon-api/generators"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
 )
 
 func GetNetworkInfo(c *fiber.Ctx) error {
@@ -120,6 +122,13 @@ func GetConfig(c *fiber.Ctx) error {
 	hasExistingConfig := database.DB.Where("node_id = ?", nodeID).First(&existingConfig).Error == nil
 
 	configBundle, err := generateConfigBundle(&node)
+	if err != nil && errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := services.SetupNodeNetworking(&node); err != nil {
+			logger.Error("Failed to repair networking", "error", err, "node_id", nodeID)
+		} else {
+			configBundle, err = generateConfigBundle(&node)
+		}
+	}
 	if err != nil {
 		logger.Error("Failed to generate config bundle", "error", err, "node_id", nodeID)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

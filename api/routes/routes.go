@@ -1,22 +1,14 @@
 package routes
 
 import (
+	"gluon-api/config"
 	"gluon-api/controllers"
 	"gluon-api/middleware"
-	"os"
 
 	"github.com/gofiber/fiber/v2"
 
 	jwtware "github.com/gofiber/contrib/jwt"
 )
-
-var secretKey = func() string {
-	s := os.Getenv("SECRET_KEY")
-	if s == "" {
-		s = "default_secret"
-	}
-	return s
-}()
 
 func SetupRoutes(app *fiber.App) {
 	app.Get("/metrics", controllers.Metrics)
@@ -30,7 +22,7 @@ func SetupRoutes(app *fiber.App) {
 
 	admin := app.Group("/api/admin")
 	admin.Use(jwtware.New(jwtware.Config{
-		SigningKey:  jwtware.SigningKey{Key: []byte(secretKey)},
+		SigningKey:  jwtware.SigningKey{Key: []byte(config.Current().SecretKey)},
 		TokenLookup: "cookie:jwt",
 	}))
 
@@ -62,6 +54,8 @@ func SetupRoutes(app *fiber.App) {
 	admin.Get("kubernetes/resource", controllers.AdminGetKubernetesResourceYAML)
 	admin.Delete("kubernetes/resource", controllers.AdminDeleteKubernetesResource)
 	admin.Get("kubernetes/networking", controllers.AdminGetKubernetesNetworking)
+	admin.Get("deployment/settings", controllers.AdminGetDeploymentSettings)
+	admin.Put("deployment/settings", controllers.AdminUpdateDeploymentSettings)
 
 	agent := app.Group("/api/agent")
 	agent.Use(middleware.APIKeyAuth())

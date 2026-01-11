@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"errors"
+	"gluon-api/config"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/models"
@@ -14,10 +15,8 @@ import (
 )
 
 const (
-	defaultPodCIDR     = "10.244.0.0/16"
-	defaultServiceCIDR = services.DefaultKubernetesServiceCIDR
-	defaultK8sVersion  = "v1.29"
-	joinRefreshWindow  = 30 * time.Minute
+	defaultK8sVersion = "v1.29"
+	joinRefreshWindow = 30 * time.Minute
 )
 
 type kubernetesTask struct {
@@ -47,6 +46,7 @@ type kubernetesReport struct {
 
 func GetKubernetesTask(c *fiber.Ctx) error {
 	nodeID := c.Locals("node_id").(uint)
+	cfg := config.Current()
 
 	var node models.Node
 	if err := database.DB.First(&node, nodeID).Error; err != nil {
@@ -82,8 +82,8 @@ func GetKubernetesTask(c *fiber.Ctx) error {
 			return c.JSON(kubernetesTask{
 				Action:               "init",
 				ControlPlaneEndpoint: endpoint,
-				PodCIDR:              nonEmpty(cluster.PodCIDR, defaultPodCIDR),
-				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, defaultServiceCIDR),
+				PodCIDR:              nonEmpty(cluster.PodCIDR, cfg.KubernetesPodCIDR),
+				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, cfg.KubernetesServiceCIDR),
 				KubernetesVersion:    nonEmpty(cluster.KubernetesVersion, defaultK8sVersion),
 				Note:                 "Bootstrap control-plane with kubeadm init (single-cluster mode)",
 			})
@@ -106,8 +106,8 @@ func GetKubernetesTask(c *fiber.Ctx) error {
 			return c.JSON(kubernetesTask{
 				Action:               "init",
 				ControlPlaneEndpoint: endpoint,
-				PodCIDR:              nonEmpty(cluster.PodCIDR, defaultPodCIDR),
-				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, defaultServiceCIDR),
+				PodCIDR:              nonEmpty(cluster.PodCIDR, cfg.KubernetesPodCIDR),
+				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, cfg.KubernetesServiceCIDR),
 				KubernetesVersion:    nonEmpty(cluster.KubernetesVersion, defaultK8sVersion),
 				Note:                 "Refresh Kubernetes join commands",
 			})
@@ -291,6 +291,7 @@ func AdminRefreshKubernetesJoinCommands(c *fiber.Ctx) error {
 }
 
 func getOrCreateKubernetesCluster(bootstrapHub *models.Node) (*models.KubernetesCluster, error) {
+	cfg := config.Current()
 	var cluster models.KubernetesCluster
 	err := database.DB.Order("id asc").First(&cluster).Error
 	if err != nil {
@@ -306,8 +307,8 @@ func getOrCreateKubernetesCluster(bootstrapHub *models.Node) (*models.Kubernetes
 		newCluster := models.KubernetesCluster{
 			BootstrapNodeID:      &bootstrapHub.ID,
 			ControlPlaneEndpoint: endpoint,
-			PodCIDR:              defaultPodCIDR,
-			ServiceCIDR:          defaultServiceCIDR,
+			PodCIDR:              cfg.KubernetesPodCIDR,
+			ServiceCIDR:          cfg.KubernetesServiceCIDR,
 			KubernetesVersion:    defaultK8sVersion,
 		}
 		if err := database.DB.Create(&newCluster).Error; err != nil {
@@ -330,11 +331,11 @@ func getOrCreateKubernetesCluster(bootstrapHub *models.Node) (*models.Kubernetes
 		changed = true
 	}
 	if cluster.PodCIDR == "" {
-		cluster.PodCIDR = defaultPodCIDR
+		cluster.PodCIDR = cfg.KubernetesPodCIDR
 		changed = true
 	}
 	if cluster.ServiceCIDR == "" {
-		cluster.ServiceCIDR = defaultServiceCIDR
+		cluster.ServiceCIDR = cfg.KubernetesServiceCIDR
 		changed = true
 	}
 	if cluster.KubernetesVersion == "" {

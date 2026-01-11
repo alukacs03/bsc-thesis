@@ -2,11 +2,11 @@ package controllers
 
 import (
 	"fmt"
+	"gluon-api/config"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/models"
 	"gluon-api/utils"
-	"os"
 	"strconv"
 	"time"
 
@@ -14,14 +14,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
-
-var secretKey = func() string {
-	s := os.Getenv("SECRET_KEY")
-	if s == "" {
-		s = "default_secret"
-	}
-	return s
-}()
 
 func AddDemoUser() {
 	var existingUser models.User
@@ -275,7 +267,7 @@ func Login(c *fiber.Ctx) error {
 		"exp": time.Now().Add(time.Hour * 24).Unix(),
 	})
 
-	token, err := claims.SignedString([]byte(secretKey))
+	token, err := claims.SignedString([]byte(config.Current().SecretKey))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to generate token",
@@ -304,7 +296,7 @@ func User(c *fiber.Ctx) error {
 	cookie := c.Cookies("jwt")
 
 	token, err := jwt.ParseWithClaims(cookie, &jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secretKey), nil
+		return []byte(config.Current().SecretKey), nil
 	})
 
 	if err != nil || token == nil || !token.Valid {

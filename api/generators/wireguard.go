@@ -2,6 +2,7 @@ package generators
 
 import (
 	"fmt"
+	"gluon-api/config"
 	"strings"
 )
 
@@ -54,7 +55,7 @@ func GenerateWireGuardConfigForWorker(listenPort int, privateKey string, hubPubl
 		PublicKey: hubPublicKey,
 		Endpoint:  fmt.Sprintf("%s:%d", hubEndpoint, hubListenPort),
 		AllowedIPs: []string{
-			"10.255.0.0/16",
+			config.Current().LoopbackCIDR,
 			"224.0.0.5/32",
 		},
 		PersistentKeepalive: 0,

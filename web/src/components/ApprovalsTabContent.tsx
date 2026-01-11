@@ -14,37 +14,56 @@ interface ApprovalsTabContentProps {
 
 
 const ApprovalsTabContent = ({ selectedTab, selectedCategory, nodeApprovals, userApprovals, onUserStatusChange, onNodeStatusChange }: ApprovalsTabContentProps) => {
+    const vpsApprovals = nodeApprovals ?? []
+    const userRequests = userApprovals ?? []
+
+    const vpsFiltered = vpsApprovals.filter(approval =>
+        selectedTab === 'pending' ? approval.status === 'pending' :
+        selectedTab === 'approved' ? (approval.status === 'approved' || approval.status === 'accepted') :
+        approval.status === 'rejected'
+    )
+
+    const usersFiltered = userRequests.filter(approval =>
+        selectedTab === 'pending' ? approval.status === 'pending' :
+        selectedTab === 'approved' ? approval.status === 'approved' :
+        selectedTab === 'rejected' ? approval.status === 'rejected' :
+        approval.status === 'rejected'
+    )
+
+    const vpsEmptyText = selectedTab === 'pending'
+        ? 'No pending VPS node requests.'
+        : selectedTab === 'approved'
+            ? 'No approved VPS node requests.'
+            : 'No rejected VPS node requests.'
+
+    const usersEmptyText = selectedTab === 'pending'
+        ? 'No pending user registration requests.'
+        : selectedTab === 'approved'
+            ? 'No approved user registration requests.'
+            : 'No rejected user registration requests.'
+
     return (
         <>
             {selectedCategory === 'vps' && (
             <>
-                {nodeApprovals && nodeApprovals.length > 0 ? (
-                <Node
-                    approvals={nodeApprovals.filter(approval =>
-                    selectedTab === 'pending' ? approval.status === 'pending' :
-                    selectedTab === 'approved' ? (approval.status === 'approved' || approval.status === 'accepted') :
-                    approval.status === 'rejected'
-                    )}
-                    onRefetch={onNodeStatusChange}
-                />
+                {vpsFiltered.length > 0 ? (
+                    <Node
+                        approvals={vpsFiltered}
+                        onRefetch={onNodeStatusChange}
+                    />
                 ) : (
-                <p className="text-sm text-slate-600">No VPS node requests available.</p>
+                    <p className="text-sm text-slate-600">{vpsEmptyText}</p>
                 )}
             </>
             )} {selectedCategory === 'users' && (
             <>
-                {userApprovals && userApprovals.length > 0 ? (
-                <Users
-                    requests={userApprovals.filter(approval =>
-                    selectedTab === 'pending' ? approval.status === 'pending' :
-                    selectedTab === 'approved' ? approval.status === 'approved' :
-                    selectedTab === 'rejected' ? approval.status === 'rejected' :
-                    approval.status === 'rejected'
-                    )}
-                    onStatusChange={onUserStatusChange}
-                />
+                {usersFiltered.length > 0 ? (
+                    <Users
+                        requests={usersFiltered}
+                        onStatusChange={onUserStatusChange}
+                    />
                 ) : (
-                <p className="text-sm text-slate-600">No user registration requests available.</p>
+                    <p className="text-sm text-slate-600">{usersEmptyText}</p>
                 )}
             </>
             )}

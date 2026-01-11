@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"gluon-api/config"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/models"
@@ -11,30 +12,22 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	DefaultLoopbackCIDR   = "10.255.0.0/22"
-	DefaultHubToHubCIDR   = "10.255.4.0/24"
-	DefaultHub1WorkerCIDR = "10.255.8.0/22"
-	DefaultHub2WorkerCIDR = "10.255.12.0/22"
-	DefaultHub3WorkerCIDR = "10.255.16.0/22"
-	MaxHubs               = 3
-
-	DefaultKubernetesServiceCIDR = "10.96.0.0/16"
-)
+const MaxHubs = 3
 
 func EnsureDefaultPools() error {
+	cfg := config.Current()
 	pools := []struct {
 		Purpose   models.IPPoolPurpose
 		CIDR      string
 		HubNumber *int
 		Kind      models.IPPoolKind
 	}{
-		{models.IPPoolPurposeLoopback, DefaultLoopbackCIDR, nil, models.IPPoolKindWireGuard},
-		{models.IPPoolPurposeHubToHub, DefaultHubToHubCIDR, nil, models.IPPoolKindWireGuard},
-		{models.IPPoolPurposeHub1Worker, DefaultHub1WorkerCIDR, intPtr(1), models.IPPoolKindWireGuard},
-		{models.IPPoolPurposeHub2Worker, DefaultHub2WorkerCIDR, intPtr(2), models.IPPoolKindWireGuard},
-		{models.IPPoolPurposeHub3Worker, DefaultHub3WorkerCIDR, intPtr(3), models.IPPoolKindWireGuard},
-		{models.IPPoolPurposeKubernetesServices, DefaultKubernetesServiceCIDR, nil, models.IPPoolKindKubernetes},
+		{models.IPPoolPurposeLoopback, cfg.LoopbackCIDR, nil, models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHubToHub, cfg.HubToHubCIDR, nil, models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub1Worker, cfg.Hub1WorkerCIDR, intPtr(1), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub2Worker, cfg.Hub2WorkerCIDR, intPtr(2), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub3Worker, cfg.Hub3WorkerCIDR, intPtr(3), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeKubernetesServices, cfg.KubernetesServiceCIDR, nil, models.IPPoolKindKubernetes},
 	}
 
 	for _, p := range pools {
@@ -220,6 +213,13 @@ func createLink(hub *models.Node, worker *models.Node) error {
 		return fmt.Errorf("invalid hub number %d for hub %d", hubNumber, hub.ID)
 	}
 
+	if _, err := allocateLoopbackIP(hub); err != nil {
+		return fmt.Errorf("failed to ensure hub loopback IP: %w", err)
+	}
+	if _, err := allocateLoopbackIP(worker); err != nil {
+		return fmt.Errorf("failed to ensure worker loopback IP: %w", err)
+	}
+
 	hubListenPort := hubWorkerListenPort(hubNumber, worker.ID)
 	workerListenPort := 51820 + hubNumber - 1
 
@@ -263,7 +263,7 @@ func createLink(hub *models.Node, worker *models.Node) error {
 
 		var workerIface models.WireGuardInterface
 		if err := database.DB.Where("node_id = ? AND name = ?", worker.ID, workerIfaceName).First(&workerIface).Error; err == nil {
-			desired := fmt.Sprintf("%s/32, %s, 10.255.0.0/16, 224.0.0.5/32", hubLoopback, existingLink.Subnet)
+			desired := fmt.Sprintf("%s/32, %s, %s, 224.0.0.5/32", hubLoopback, existingLink.Subnet, config.Current().LoopbackCIDR)
 			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", workerIface.ID).Update("allowed_ips", desired)
 			database.DB.Model(&workerIface).Update("listen_port", workerListenPort)
 			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", workerIface.ID).
@@ -346,7 +346,7 @@ func createLink(hub *models.Node, worker *models.Node) error {
 		InterfaceID:         workerInterface.ID,
 		PeerNodeID:          hub.ID,
 		Endpoint:            fmt.Sprintf("%s:%d", hub.PublicIP, hubListenPort),
-		AllowedIPs:          fmt.Sprintf("%s/32, %s, 10.255.0.0/16, 224.0.0.5/32", hubLoopback, subnet),
+		AllowedIPs:          fmt.Sprintf("%s/32, %s, %s, 224.0.0.5/32", hubLoopback, subnet, config.Current().LoopbackCIDR),
 		PersistentKeepAlive: 0,
 		Status:              models.PeerStatusActive,
 	}
@@ -359,10 +359,46 @@ func createLink(hub *models.Node, worker *models.Node) error {
 }
 
 func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
+	if _, err := allocateLoopbackIP(hubA); err != nil {
+		return fmt.Errorf("failed to ensure hub loopback IP: %w", err)
+	}
+	if _, err := allocateLoopbackIP(hubB); err != nil {
+		return fmt.Errorf("failed to ensure hub loopback IP: %w", err)
+	}
+
 	var existingLink models.LinkAllocation
 	if err := database.DB.Where("(node_a_id = ? AND node_b_id = ?) OR (node_a_id = ? AND node_b_id = ?)",
 		hubA.ID, hubB.ID, hubB.ID, hubA.ID).First(&existingLink).Error; err == nil {
 		logger.Info("Hub-to-hub link already exists", "hub_a_id", hubA.ID, "hub_b_id", hubB.ID)
+		if hubA.HubNumber == 0 || hubB.HubNumber == 0 {
+			return fmt.Errorf("missing hub number for hub-to-hub link")
+		}
+		hubAPort := hubToHubListenPort(hubA.HubNumber, hubB.HubNumber)
+		hubBPort := hubToHubListenPort(hubB.HubNumber, hubA.HubNumber)
+		allowed := fmt.Sprintf("%s, %s, 224.0.0.5/32", existingLink.Subnet, config.Current().LoopbackCIDR)
+
+		hubAInterfaceName := fmt.Sprintf("wg-%s", hubB.Hostname)
+		var hubAInterface models.WireGuardInterface
+		if err := database.DB.Where("node_id = ? AND name = ?", hubA.ID, hubAInterfaceName).First(&hubAInterface).Error; err == nil {
+			database.DB.Model(&hubAInterface).Update("listen_port", hubAPort)
+			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", hubAInterface.ID).
+				Updates(map[string]any{
+					"endpoint":    fmt.Sprintf("%s:%d", hubB.PublicIP, hubBPort),
+					"allowed_ips": allowed,
+				})
+		}
+
+		hubBInterfaceName := fmt.Sprintf("wg-%s", hubA.Hostname)
+		var hubBInterface models.WireGuardInterface
+		if err := database.DB.Where("node_id = ? AND name = ?", hubB.ID, hubBInterfaceName).First(&hubBInterface).Error; err == nil {
+			database.DB.Model(&hubBInterface).Update("listen_port", hubBPort)
+			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", hubBInterface.ID).
+				Updates(map[string]any{
+					"endpoint":    fmt.Sprintf("%s:%d", hubA.PublicIP, hubAPort),
+					"allowed_ips": allowed,
+				})
+		}
+
 		return nil
 	}
 
@@ -422,7 +458,7 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 		InterfaceID:         hubAInterface.ID,
 		PeerNodeID:          hubB.ID,
 		Endpoint:            fmt.Sprintf("%s:%d", hubB.PublicIP, hubBPort),
-		AllowedIPs:          fmt.Sprintf("%s, 10.255.0.0/24, 224.0.0.5/32", subnet),
+		AllowedIPs:          fmt.Sprintf("%s, %s, 224.0.0.5/32", subnet, config.Current().LoopbackCIDR),
 		PersistentKeepAlive: 0,
 		Status:              models.PeerStatusActive,
 	}
@@ -434,7 +470,7 @@ func createHubToHubLink(hubA *models.Node, hubB *models.Node) error {
 		InterfaceID:         hubBInterface.ID,
 		PeerNodeID:          hubA.ID,
 		Endpoint:            fmt.Sprintf("%s:%d", hubA.PublicIP, hubAPort),
-		AllowedIPs:          fmt.Sprintf("%s, 10.255.0.0/24, 224.0.0.5/32", subnet),
+		AllowedIPs:          fmt.Sprintf("%s, %s, 224.0.0.5/32", subnet, config.Current().LoopbackCIDR),
 		PersistentKeepAlive: 0,
 		Status:              models.PeerStatusActive,
 	}

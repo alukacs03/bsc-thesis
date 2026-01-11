@@ -182,6 +182,14 @@ func applyWireGuardConfigs(configs map[string]string) error {
 		return err
 	}
 
+	files, _ := filepath.Glob(filepath.Join(WireGuardDir, "wg-*.conf"))
+	for _, f := range files {
+		ifaceName := strings.TrimSuffix(filepath.Base(f), ".conf")
+		if _, ok := configs[ifaceName]; !ok {
+			_ = os.Remove(f)
+		}
+	}
+
 	for ifaceName, configContent := range configs {
 		privateKey, err := keys.GetPrivateKey(ifaceName)
 		if err != nil {
