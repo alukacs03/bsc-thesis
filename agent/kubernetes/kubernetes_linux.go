@@ -1,4 +1,5 @@
-
+//go:build linux
+// +build linux
 
 package kubernetes
 
@@ -396,7 +397,7 @@ func initCluster(ctx context.Context, task *client.KubernetesTask) (*initResult,
 
 	
 	log.Println("Installing Flannel CNI...")
-	if out, err := runKubectlLogged(ctx, "apply", "-f", "https:
+	if out, err := runKubectlLogged(ctx, "apply", "-f", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"); err != nil {
 		log.Printf("Warning: failed to apply flannel manifest: %v\n%s", err, truncate(out, 4000))
 	}
 	ensureFlannelTolerations(ctx)
@@ -501,7 +502,7 @@ func ensureFlannelTolerations(ctx context.Context) {
 		if time.Since(lastFlannelInstallAttempt) > 5*time.Minute {
 			lastFlannelInstallAttempt = time.Now()
 			log.Printf("No flannel daemonset found; attempting to install Flannel CNI...")
-			if out, err := runKubectlLogged(ctx, "apply", "-f", "https:
+			if out, err := runKubectlLogged(ctx, "apply", "-f", "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"); err != nil {
 				log.Printf("Warning: failed to apply flannel manifest: %v\n%s", err, truncate(out, 4000))
 				return
 			}
@@ -922,7 +923,7 @@ func localAPIServerLivezStatus(ctx context.Context) (int, error) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https:
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://127.0.0.1:6443/livez", nil)
 	if err != nil {
 		return 0, err
 	}

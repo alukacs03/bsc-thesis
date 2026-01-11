@@ -1,4 +1,5 @@
-
+//go:build !linux
+// +build !linux
 
 package client
 
@@ -9,4 +10,3 @@ type CommandResult struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
-

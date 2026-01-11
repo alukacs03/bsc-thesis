@@ -1,4 +1,5 @@
-
+//go:build linux
+// +build linux
 
 package client
 
@@ -57,4 +58,3 @@ func runRestartService(id uint, payload json.RawMessage) CommandResult {
 	}
 	return CommandResult{ID: id, Status: "succeeded", Output: string(b)}
 }
-

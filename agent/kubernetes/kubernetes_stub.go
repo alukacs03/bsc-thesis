@@ -1,4 +1,5 @@
-
+//go:build !linux
+// +build !linux
 
 package kubernetes
 
@@ -9,4 +10,3 @@ import (
 
 
 func Sync(_ context.Context, _ *client.Client, _ string) {}
-
