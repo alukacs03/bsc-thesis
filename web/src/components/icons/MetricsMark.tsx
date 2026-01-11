@@ -1,5 +1,3 @@
-import React from 'react'
-
 const MetricsMark = () => {
   return (
     <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

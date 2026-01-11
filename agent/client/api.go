@@ -125,34 +125,6 @@ func (c *Client) CheckEnrollmentStatus(requestID uint, enrollmentSecret string) 
 	return result.Status, result.NodeID, result.APIKey, nil
 }
 
-func (c *Client) Heartbeat(apiKey string) error {
-	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/heartbeat", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", c.UserAgent)
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send heartbeat: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("unauthorized: API key may be revoked")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("heartbeat failed: %s - %s", resp.Status, string(bodyBytes))
-	}
-
-	return nil
-}
-
 type NetworkInfo struct {
 	NodeID             uint     `json:"node_id"`
 	Role               string   `json:"role"`
@@ -226,6 +198,12 @@ type ConfigBundle struct {
 	WireGuardConfigs     map[string]string `json:"wireguard_configs"`
 	NetworkInterfaceFile string            `json:"network_interface_file"`
 	FRRConfigFile        string            `json:"frr_config_file"`
+	SSHAuthorizedKeys    []SSHAuthorizedKey `json:"ssh_authorized_keys"`
+}
+
+type SSHAuthorizedKey struct {
+	Username  string `json:"username"`
+	PublicKey string `json:"public_key"`
 }
 
 func (c *Client) GetConfig(apiKey string) (*ConfigBundle, error) {
@@ -287,5 +265,119 @@ func (c *Client) ReportConfigApplied(apiKey string, version int, hash string) er
 		return fmt.Errorf("report config applied failed: %s - %s", resp.Status, string(bodyBytes))
 	}
 
+	return nil
+}
+
+func (c *Client) ReportCommandResults(apiKey string, results []CommandResult) error {
+	payload := map[string]any{
+		"results": results,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/commands/report", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("report command results failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	return nil
+}
+
+type KubernetesTask struct {
+	Action               string `json:"action"`
+	ControlPlaneEndpoint string `json:"control_plane_endpoint,omitempty"`
+	PodCIDR              string `json:"pod_cidr,omitempty"`
+	ServiceCIDR          string `json:"service_cidr,omitempty"`
+	KubernetesVersion    string `json:"kubernetes_version,omitempty"`
+	JoinCommand          string `json:"join_command,omitempty"`
+	Note                 string `json:"note,omitempty"`
+}
+
+func (c *Client) GetKubernetesTask(apiKey string) (*KubernetesTask, error) {
+	req, err := http.NewRequest("GET", c.BaseURL+"/api/agent/kubernetes/task", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get kubernetes task failed: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	var result KubernetesTask
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+type KubernetesReport struct {
+	State string `json:"state"`
+
+	Message string `json:"message,omitempty"`
+
+	ControlPlaneEndpoint string `json:"control_plane_endpoint,omitempty"`
+	PodCIDR              string `json:"pod_cidr,omitempty"`
+	ServiceCIDR          string `json:"service_cidr,omitempty"`
+	KubernetesVersion    string `json:"kubernetes_version,omitempty"`
+
+	WorkerJoinCommand       string `json:"worker_join_command,omitempty"`
+	ControlPlaneJoinCommand string `json:"control_plane_join_command,omitempty"`
+	JoinCommandExpiresAt    string `json:"join_command_expires_at,omitempty"` 
+}
+
+func (c *Client) ReportKubernetes(apiKey string, report KubernetesReport) error {
+	body, err := json.Marshal(report)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/agent/kubernetes/report", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("report kubernetes failed: %s - %s", resp.Status, string(bodyBytes))
+	}
 	return nil
 }

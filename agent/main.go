@@ -7,6 +7,7 @@ import (
 	"gluon-agent/client"
 	"gluon-agent/config"
 	"gluon-agent/keys"
+	"gluon-agent/kubernetes"
 	"gluon-agent/pkgmgr"
 	"log"
 	"os"
@@ -91,12 +92,18 @@ func main() {
 		log.Printf("Enrollment successful! Node ID: %s", cfg.NodeID)
 	}
 
-	log.Println("Starting heartbeat loop (30s interval)...")
-	heartbeatTicker := time.NewTicker(30 * time.Second)
+	heartbeatSecondsStr := getEnvOrDefault("GLUON_HEARTBEAT_INTERVAL_SECONDS", "30")
+	heartbeatSeconds, err := strconv.Atoi(heartbeatSecondsStr)
+	if err != nil || heartbeatSeconds <= 0 {
+		heartbeatSeconds = 30
+	}
+
+	log.Printf("Starting heartbeat loop (%ds interval)...", heartbeatSeconds)
+	heartbeatTicker := time.NewTicker(time.Duration(heartbeatSeconds) * time.Second)
 	defer heartbeatTicker.Stop()
 
 	go func() {
-		if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
+		if err := apiClient.Heartbeat(cfg.APIKey, cfg.DesiredRole); err != nil {
 			log.Printf("Initial heartbeat failed: %v", err)
 		} else {
 			log.Println("Initial heartbeat sent successfully")
@@ -108,7 +115,7 @@ func main() {
 				log.Println("Heartbeat goroutine exiting...")
 				return
 			case <-heartbeatTicker.C:
-				if err := apiClient.Heartbeat(cfg.APIKey); err != nil {
+				if err := apiClient.Heartbeat(cfg.APIKey, cfg.DesiredRole); err != nil {
 					log.Printf("Heartbeat failed: %v", err)
 				} else {
 					log.Println("Heartbeat sent")
@@ -122,7 +129,7 @@ func main() {
 	defer configTicker.Stop()
 
 	go func() {
-		syncConfig(apiClient, cfg.APIKey)
+		syncConfig(ctx, apiClient, cfg.APIKey)
 
 		for {
 			select {
@@ -130,7 +137,7 @@ func main() {
 				log.Println("Config sync goroutine exiting...")
 				return
 			case <-configTicker.C:
-				syncConfig(apiClient, cfg.APIKey)
+				syncConfig(ctx, apiClient, cfg.APIKey)
 			}
 		}
 	}()
@@ -211,33 +218,35 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-func syncConfig(apiClient *client.Client, apiKey string) {
+func syncConfig(ctx context.Context, apiClient *client.Client, apiKey string) {
 	log.Println("Syncing configuration...")
+	// Kubernetes bootstrap/join (single cluster) is driven by the API task endpoint,
+	// and should run even when the network/config bundle is unchanged.
+	defer kubernetes.Sync(ctx, apiClient, apiKey)
 
 	networkInfo, err := apiClient.GetNetworkInfo(apiKey)
 	if err != nil {
 		log.Printf("Failed to get network info: %v", err)
-		return
-	}
+	} else if len(networkInfo.RequiredInterfaces) == 0 {
+		log.Println("No network interfaces configured yet; skipping WireGuard key upload")
+	} else {
+		log.Printf("Required interfaces: %v", networkInfo.RequiredInterfaces)
 
-	if len(networkInfo.RequiredInterfaces) == 0 {
-		log.Println("No network interfaces configured yet")
-		return
+		pubKeys, err := keys.EnsureKeys(networkInfo.RequiredInterfaces)
+		if err != nil {
+			log.Printf("Failed to ensure keys: %v", err)
+		} else {
+			state, _ := keys.LoadUploadState()
+			if state != nil && keys.EqualPublicKeys(state.PublicKeys, pubKeys) {
+				log.Printf("WireGuard public keys unchanged (%d); skipping upload", len(pubKeys))
+			} else if err := apiClient.UploadPublicKeys(apiKey, pubKeys); err != nil {
+				log.Printf("Failed to upload public keys: %v", err)
+			} else {
+				log.Printf("Uploaded %d WireGuard public keys", len(pubKeys))
+				_ = keys.SaveUploadState(&keys.UploadState{PublicKeys: pubKeys})
+			}
+		}
 	}
-
-	log.Printf("Required interfaces: %v", networkInfo.RequiredInterfaces)
-
-	pubKeys, err := keys.EnsureKeys(networkInfo.RequiredInterfaces)
-	if err != nil {
-		log.Printf("Failed to ensure keys: %v", err)
-		return
-	}
-
-	if err := apiClient.UploadPublicKeys(apiKey, pubKeys); err != nil {
-		log.Printf("Failed to upload public keys: %v", err)
-		return
-	}
-	log.Printf("Uploaded %d public keys", len(pubKeys))
 
 	configBundle, err := apiClient.GetConfig(apiKey)
 	if err != nil {
@@ -253,6 +262,13 @@ func syncConfig(apiClient *client.Client, apiKey string) {
 
 	if !applier.NeedsUpdate(configBundle, state) {
 		log.Printf("Config is up to date (version %d)", state.Version)
+		// Even if the bundle is unchanged, ensure interfaces are up (e.g., after reboot),
+		// otherwise kubelet can fall back to the LAN IP and control-plane traffic may break.
+		if networkInfo != nil && len(networkInfo.RequiredInterfaces) > 0 {
+			applier.EnsureInterfacesUp(networkInfo.RequiredInterfaces)
+		} else {
+			applier.EnsureInterfacesUp(nil)
+		}
 		return
 	}
 

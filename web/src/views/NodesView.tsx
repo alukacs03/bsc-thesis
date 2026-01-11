@@ -5,101 +5,82 @@ import NodeListItem from "../components/NodeListItem"
 import { useState } from "react"
 import DetailsNavBar from "../components/DetailsNavBar"
 import NodesTabContent from "../components/NodesTabContent"
+import { useNodes } from "@/services/hooks/useNodes"
+import { LoadingSpinner } from "@/components/LoadingSpinner"
+import { ErrorMessage } from "@/components/ErrorMessage"
+import { nodesAPI } from "@/services/api/nodes"
+import { toast } from "sonner"
+import { handleAPIError } from "@/utils/errorHandler"
+import { useNavigate } from "react-router-dom"
+import { formatUptimeSeconds } from "@/utils/format"
 
 const NodesView = () => {
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [selectedTab, setSelectedTab] = useState<string>("Overview");
+  const { data: nodes, loading, error, refetch } = useNodes();
+  const navigate = useNavigate();
 
-    const nodes = [
-        {
-            id: 1,
-            name: 'gluon-master-01',
-            ip: '10.0.1.10',
-            status: 'online',
-            role: 'Control Plane',
-            lastSeen: '2 minutes ago',
-            cpu: 45,
-            memory: 62,
-            disk: 38,
-            uptime: '15 days, 6 hours',
-            version: 'v1.28.2',
-            pods: 12,
-            location: 'us-east-1a',
-            logs : [
-                "2024-10-01 12:00:00 [INFO] Node initialized successfully.",
-                "2024-10-01 12:05:00 [WARN] High memory usage detected.",
-                "2024-10-01 12:10:00 [INFO] New pod scheduled: pod-xyz.",
-                "2024-10-01 12:15:00 [ERROR] Failed to pull image for pod-abc.",
-                "2024-10-01 12:20:00 [INFO] Node metrics updated.",
-                "2024-10-01 12:25:00 [INFO] Pod pod-xyz is now running.",
-                "2024-10-01 12:30:00 [WARN] Disk space running low.",
-                "2024-10-01 12:35:00 [INFO] Node metrics updated.",
-                "2024-10-01 12:40:00 [ERROR] Network latency detected.",
-                "2024-10-01 12:45:00 [INFO] Node operating normally."
-            ]
-        },
-        {
-            id: 2,
-            name: 'gluon-worker-01',
-            ip: '10.0.1.11',
-            status: 'online',
-            role: 'Worker',
-            lastSeen: '1 minute ago',
-            cpu: 78,
-            memory: 82,
-            disk: 55,
-            uptime: '15 days, 6 hours',
-            version: 'v1.28.2',
-            pods: 24,
-            location: 'us-east-1b'
-        },
-        {
-            id: 3,
-            name: 'gluon-worker-02',
-            ip: '10.0.1.12',
-            status: 'online',
-            role: 'Worker',
-            lastSeen: '30 seconds ago',
-            cpu: 32,
-            memory: 48,
-            disk: 41,
-            uptime: '12 days, 14 hours',
-            version: 'v1.28.2',
-            pods: 18,
-            location: 'us-east-1c'
-        },
-        {
-            id: 4,
-            name: 'gluon-worker-03',
-            ip: '10.0.1.13',
-            status: 'offline',
-            role: 'Worker',
-            lastSeen: '2 hours ago',
-            cpu: 0,
-            memory: 0,
-            disk: 68,
-            uptime: '0 days, 0 hours',
-            version: 'v1.28.2',
-            pods: 0,
-            location: 'us-east-1a'
-        },
-        {
-            id: 5,
-            name: 'gluon-worker-04',
-            ip: '10.0.1.14',
-            status: 'maintenance',
-            role: 'Worker',
-            lastSeen: '5 minutes ago',
-            cpu: 15,
-            memory: 25,
-            disk: 33,
-            uptime: '8 days, 2 hours',
-            version: 'v1.28.1',
-            pods: 3,
-            location: 'us-east-1b'
-        }
-    ];
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this node? This action cannot be undone.')) {
+      return;
+    }
 
+    try {
+      await nodesAPI.delete(id);
+      toast.success('Node deleted successfully');
+      if (selectedNode === id) {
+        setSelectedNode(null);
+      }
+      await refetch();
+    } catch (error) {
+      const message = handleAPIError(error, 'delete node');
+      toast.error(message);
+    }
+  };
+
+  if (loading && !nodes) {
+    return <LoadingSpinner />;
+  }
+
+  if (error) {
+    return <ErrorMessage message={error.message} onRetry={refetch} />;
+  }
+
+  const nodesList = nodes || [];
+  const totalNodes = nodesList.length;
+  const onlineNodes = nodesList.filter(n => n.status === 'active').length;
+  const offlineNodes = nodesList.filter(n => n.status === 'offline').length;
+  const maintenanceNodes = nodesList.filter(n => n.status === 'maintenance').length;
+
+  // Map backend Node to display format expected by components
+  const mockNodes = nodesList.map(node => ({
+    id: node.id,
+    name: node.hostname,
+    ip: node.public_ip,
+    status: node.status === 'active' ? 'online' : node.status,
+    role: node.role === 'hub' ? 'Hub' : 'Worker',
+    lastSeen: node.last_seen_at ? formatLastSeen(node.last_seen_at) : 'Never',
+    cpu: node.cpu_usage ?? Number.NaN,
+    memory: node.memory_usage ?? Number.NaN,
+    disk: node.disk_usage ?? Number.NaN,
+    diskUsedBytes: node.disk_used_bytes ?? undefined,
+    diskTotalBytes: node.disk_total_bytes ?? undefined,
+    uptime: formatUptimeSeconds(node.uptime_seconds),
+    version: node.agent_version || 'Unknown',
+    pods: 0, // Not available yet
+    location: node.provider,
+    logs: [] // Not available yet
+  }));
+
+  function formatLastSeen(timestamp: string): string {
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
 
   return (
     <>
@@ -107,7 +88,7 @@ const NodesView = () => {
             <div className="grid grid-cols1 md:grid-cols-4 gap-6">
                 <CardWithIcon
                     title="Total Nodes"
-                    value="5"
+                    value={totalNodes.toString()}
                     textColorClass="text-slate-600"
                     valueColorClass="text-blue-600"
                     iconBGColorClass="bg-blue-100"
@@ -115,7 +96,7 @@ const NodesView = () => {
                 />
                 <CardWithIcon
                     title="Nodes Online"
-                    value="4"
+                    value={onlineNodes.toString()}
                     textColorClass="text-slate-600"
                     valueColorClass="text-green-600"
                     iconBGColorClass="bg-green-100"
@@ -123,7 +104,7 @@ const NodesView = () => {
                 />
                 <CardWithIcon
                     title="Nodes Offline"
-                    value="1"
+                    value={offlineNodes.toString()}
                     textColorClass="text-slate-600"
                     valueColorClass="text-red-600"
                     iconBGColorClass="bg-red-100"
@@ -131,7 +112,7 @@ const NodesView = () => {
                 />
                 <CardWithIcon
                     title="Maintenance"
-                    value="0"
+                    value={maintenanceNodes.toString()}
                     textColorClass="text-slate-600"
                     valueColorClass="text-yellow-600"
                     iconBGColorClass="bg-yellow-100"
@@ -143,43 +124,54 @@ const NodesView = () => {
                     title="Node List"
                     icon={<Server className="w-5 h-5"/>}
                     button={
-                        <button 
+                        <button
                             className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition"
-                            onClick={() => alert('Add Node clicked (would navigate to add node form)')}
+                            onClick={() => navigate('/approvals')}
                         >
-                            Add Node
+                            Approve Nodes
                         </button>
                     }
                     noPadding={true}
                  >
-                    {nodes.map(node => (
-                        <NodeListItem
-                            id={node.id}
-                            name={node.name}
-                            status={node.status}
-                            ip={node.ip}
-                            role={node.role}
-                            cpu={node.cpu}
-                            memory={node.memory}
-                            pods={node.pods}
-                            lastSeen={node.lastSeen}
-                            selectedNode={selectedNode}
-                            setSelectedNode={(id: number) => {setSelectedNode(id)}}
-                        />
-                    ))}
+                    {mockNodes.length > 0 ? (
+                      mockNodes.map(node => (
+                          <NodeListItem
+                              key={node.id}
+                              id={node.id}
+                              name={node.name}
+                              status={node.status}
+                              ip={node.ip}
+                              role={node.role}
+                              cpu={node.cpu}
+                              memory={node.memory}
+                              pods={node.pods}
+                              lastSeen={node.lastSeen}
+                              selectedNode={selectedNode}
+                              setSelectedNode={(id: number) => {setSelectedNode(id)}}
+                          />
+                      ))
+                    ) : (
+                      <div className="p-6 text-slate-600">
+                        No nodes available. Approve enrollment requests to add nodes.
+                      </div>
+                    )}
                 </CardContainer>
                 <CardContainer
-                    title={(selectedNode !== null) ? `Node Details - ID: ${selectedNode}` : "Select Node to See Details"}
+                    title={(selectedNode !== null) ? `Node Details - ${mockNodes.find(n => n.id === selectedNode)?.name}` : "Select Node to See Details"}
                     icon={<ServerCog className="w-5 h-5"/>}
                     noPadding={true}
                  >
                     <DetailsNavBar
-                        tabs={["Overview", "Logs"]}
+                        tabs={["Overview", "Networking", "Logs"]}
                         setSelectedTab={setSelectedTab}
                         selectedTab={selectedTab}
                     />
-                    {selectedNode !== null && (
-                        <NodesTabContent node={nodes[selectedNode - 1]} selectedTab={selectedTab} />
+                    {selectedNode !== null && mockNodes.find(n => n.id === selectedNode) && (
+                        <NodesTabContent
+                          node={mockNodes.find(n => n.id === selectedNode)!}
+                          selectedTab={selectedTab}
+                          onDelete={() => handleDelete(selectedNode)}
+                        />
                     )}
                     {selectedNode === null && (
                         <div className="p-6 text-slate-600">

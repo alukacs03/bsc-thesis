@@ -6,8 +6,8 @@ interface OSPFTableRowProps {
     interface: string
     helloTimer: string
     deadTimer: string
-    cost: number
-    priority: number
+    cost: number | string
+    priority: number | string
 }
 
 function getStatusColor(state: string) {

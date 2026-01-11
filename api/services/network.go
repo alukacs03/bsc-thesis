@@ -15,6 +15,10 @@ const (
 	DefaultHubToHubCIDR   = "10.255.4.0/24"
 	DefaultHub1WorkerCIDR = "10.255.8.0/22"
 	DefaultHub2WorkerCIDR = "10.255.12.0/22"
+
+	
+	
+	DefaultKubernetesServiceCIDR = "10.96.0.0/16"
 )
 
 func EnsureDefaultPools() error {
@@ -22,11 +26,13 @@ func EnsureDefaultPools() error {
 		Purpose   models.IPPoolPurpose
 		CIDR      string
 		HubNumber *int
+		Kind      models.IPPoolKind
 	}{
-		{models.IPPoolPurposeLoopback, DefaultLoopbackCIDR, nil},
-		{models.IPPoolPurposeHubToHub, DefaultHubToHubCIDR, nil},
-		{models.IPPoolPurposeHub1Worker, DefaultHub1WorkerCIDR, intPtr(1)},
-		{models.IPPoolPurposeHub2Worker, DefaultHub2WorkerCIDR, intPtr(2)},
+		{models.IPPoolPurposeLoopback, DefaultLoopbackCIDR, nil, models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHubToHub, DefaultHubToHubCIDR, nil, models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub1Worker, DefaultHub1WorkerCIDR, intPtr(1), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeHub2Worker, DefaultHub2WorkerCIDR, intPtr(2), models.IPPoolKindWireGuard},
+		{models.IPPoolPurposeKubernetesServices, DefaultKubernetesServiceCIDR, nil, models.IPPoolKindKubernetes},
 	}
 
 	for _, p := range pools {
@@ -34,7 +40,7 @@ func EnsureDefaultPools() error {
 		err := database.DB.Where("purpose = ?", p.Purpose).First(&existing).Error
 		if err == gorm.ErrRecordNotFound {
 			pool := models.IPPool{
-				Kind:      models.IPPoolKindWireGuard,
+				Kind:      p.Kind,
 				Purpose:   p.Purpose,
 				CIDR:      p.CIDR,
 				HubNumber: p.HubNumber,

@@ -15,9 +15,19 @@ const (
 	frrRepoURL            = "https://deb.frrouting.org/frr"
 	frrRepoListPath       = "/etc/apt/sources.list.d/frr.list"
 	frrKeyringPath        = "/usr/share/keyrings/frrouting.gpg"
-	frrKeyURL             = "https://deb.frrouting.org/frr/keys.gpg"
+	frrKeyURL             = "https://deb.frrouting.org/frr.gpg"
 	defaultDebianCodename = "bookworm"
 	frrDaemonsPath        = "/etc/frr/daemons"
+
+	k8sAptListPath    = "/etc/apt/sources.list.d/kubernetes.list"
+	k8sKeyringPath    = "/etc/apt/keyrings/kubernetes-apt-keyring.gpg"
+	k8sKeyURL         = "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
+	k8sRepoURL        = "https://apt.kubernetes.io"
+	k8sModulesPath    = "/etc/modules-load.d/k8s.conf"
+	k8sSysctlPath     = "/etc/sysctl.d/99-kubernetes-cri.conf"
+	containerdCfgPath = "/etc/containerd/config.toml"
+	cniBinDir         = "/opt/cni/bin"
+	cniNetDir         = "/etc/cni/net.d"
 )
 
 var aptUpdated bool
@@ -33,6 +43,10 @@ func EnsureDependencies(ctx context.Context) error {
 
 	if err := ensureFRR(ctx); err != nil {
 		return fmt.Errorf("frr dependency: %w", err)
+	}
+
+	if err := ensureKubernetes(ctx); err != nil {
+		return fmt.Errorf("kubernetes dependency: %w", err)
 	}
 
 	return nil
@@ -81,6 +95,191 @@ func ensureFRR(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func ensureKubernetes(ctx context.Context) error {
+	if commandExists("kubeadm") && commandExists("kubelet") && commandExists("kubectl") {
+		log.Println("Kubernetes tools detected (kubeadm/kubelet/kubectl)")
+
+		if err := ensureKernelPrereqs(ctx); err != nil {
+			return err
+		}
+		if err := ensureContainerd(ctx); err != nil {
+			return err
+		}
+		_, _ = runCommand(ctx, "systemctl", "enable", "--now", "kubelet")
+		return nil
+	}
+
+	log.Println("Kubernetes tools not detected, installing container runtime + kubeadm/kubelet/kubectl...")
+
+	if err := aptUpdate(ctx); err != nil {
+		return err
+	}
+
+	_ = aptInstall(ctx, "ca-certificates", "curl", "wget", "gnupg")
+
+	if err := ensureKernelPrereqs(ctx); err != nil {
+		return err
+	}
+
+	if err := ensureContainerd(ctx); err != nil {
+		return err
+	}
+
+	if err := ensureK8sRepo(ctx); err != nil {
+		return err
+	}
+
+	if err := aptUpdate(ctx); err != nil {
+		return err
+	}
+
+	if err := aptInstall(ctx, "kubelet", "kubeadm", "kubectl"); err != nil {
+		return err
+	}
+
+	_, _ = runCommand(ctx, "apt-mark", "hold", "kubelet", "kubeadm", "kubectl")
+	_, _ = runCommand(ctx, "systemctl", "enable", "--now", "kubelet")
+
+	return nil
+}
+
+func ensureKernelPrereqs(ctx context.Context) error {
+	if err := os.WriteFile(k8sModulesPath, []byte("overlay\nbr_netfilter\n"), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", k8sModulesPath, err)
+	}
+	_, _ = runCommand(ctx, "modprobe", "overlay")
+	_, _ = runCommand(ctx, "modprobe", "br_netfilter")
+	_, _ = runCommand(ctx, "modprobe", "vxlan")
+
+	sysctlContent := `net.bridge.bridge-nf-call-iptables = 1
+	net.bridge.bridge-nf-call-ip6tables = 1
+	net.ipv4.ip_forward = 1
+	net.ipv4.conf.all.rp_filter = 0
+	net.ipv4.conf.default.rp_filter = 0
+	`
+	if err := os.WriteFile(k8sSysctlPath, []byte(sysctlContent), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", k8sSysctlPath, err)
+	}
+	_, _ = runCommand(ctx, "sysctl", "--system")
+
+	if err := os.MkdirAll(cniBinDir, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", cniBinDir, err)
+	}
+	if err := os.MkdirAll(cniNetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", cniNetDir, err)
+	}
+
+	_, _ = runCommand(ctx, "swapoff", "-a")
+	if err := disableSwapInFstab(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureContainerd(ctx context.Context) error {
+	if commandExists("containerd") {
+		log.Println("containerd detected")
+		_, _ = runCommand(ctx, "systemctl", "enable", "--now", "containerd")
+		return configureContainerdSystemdCgroup(ctx)
+	}
+
+	if err := aptUpdate(ctx); err != nil {
+		return err
+	}
+	if err := aptInstall(ctx, "containerd"); err != nil {
+		return err
+	}
+	_, _ = runCommand(ctx, "systemctl", "enable", "--now", "containerd")
+	return configureContainerdSystemdCgroup(ctx)
+}
+
+func configureContainerdSystemdCgroup(ctx context.Context) error {
+	if fileExists(containerdCfgPath) {
+		data, err := os.ReadFile(containerdCfgPath)
+		if err == nil && bytes.Contains(data, []byte("SystemdCgroup = true")) {
+			return nil
+		}
+	}
+
+	if err := os.MkdirAll("/etc/containerd", 0755); err != nil {
+		return err
+	}
+
+	out, err := runCommand(ctx, "containerd", "config", "default")
+	if err != nil {
+		return fmt.Errorf("generate containerd config: %w", err)
+	}
+	cfg := string(out)
+	cfg = strings.Replace(cfg, "SystemdCgroup = false", "SystemdCgroup = true", 1)
+	if err := os.WriteFile(containerdCfgPath, []byte(cfg), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", containerdCfgPath, err)
+	}
+
+	_, _ = runCommand(ctx, "systemctl", "restart", "containerd")
+	return nil
+}
+
+func ensureK8sRepo(ctx context.Context) error {
+	if err := os.MkdirAll("/etc/apt/keyrings", 0755); err != nil {
+		return err
+	}
+
+	keyBytes := commandOutput(ctx, "curl", "-fsSL", k8sKeyURL)
+	if len(keyBytes) == 0 {
+		keyBytes = commandOutput(ctx, "wget", "-qO-", k8sKeyURL)
+	}
+	if len(keyBytes) == 0 {
+		return fmt.Errorf("failed to download Kubernetes key from %s", k8sKeyURL)
+	}
+
+	cmd := exec.CommandContext(ctx, "gpg", "--dearmor")
+	cmd.Stdin = bytes.NewReader(keyBytes)
+	keyring, err := cmd.Output()
+	if err != nil || len(keyring) == 0 {
+
+		keyring = keyBytes
+	}
+
+	if err := os.WriteFile(k8sKeyringPath, keyring, 0644); err != nil {
+		return fmt.Errorf("write keyring: %w", err)
+	}
+
+	repoLine := fmt.Sprintf("deb [signed-by=%s] %s /\n", k8sKeyringPath, k8sRepoURL)
+	if err := os.WriteFile(k8sAptListPath, []byte(repoLine), 0644); err != nil {
+		return fmt.Errorf("write repo list: %w", err)
+	}
+
+	return nil
+}
+
+func disableSwapInFstab() error {
+	const fstabPath = "/etc/fstab"
+	data, err := os.ReadFile(fstabPath)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	changed := false
+
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		fields := strings.Fields(trim)
+		if len(fields) >= 3 && fields[2] == "swap" {
+			lines[i] = "# " + line
+			changed = true
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+	return os.WriteFile(fstabPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 func ensureFRRRepo(ctx context.Context) error {

@@ -1,4 +1,4 @@
-interface NodeRequest {
+export interface NodeRequest {
     id: number;
     hostname: string;
     ipAddress: string;
@@ -25,5 +25,3 @@ interface NodeRequest {
     rejectedAt?: string;
     rejectedBy?: string;
 }
-
-export default NodeRequest;

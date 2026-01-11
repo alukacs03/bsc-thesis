@@ -2,7 +2,7 @@ import Badge from "./Badge"
 
 interface WGTableRowProps {
     rowKey?: string | number
-    status :  'connected' | 'down' | 'flapping'
+    status :  'connected' | 'down' | 'potentially_failing' | 'unknown'
     name: string
     pubKey : string
     endpoint : string
@@ -20,8 +20,8 @@ function getStatusBadge(status: string) {
   switch (status) {
     case 'connected':
       return <Badge className="bg-green-600 text-white">CONNECTED</Badge>;
-    case 'flapping':
-      return <Badge className="bg-yellow-600 text-white">FLAPPING</Badge>;
+    case 'potentially_failing':
+      return <Badge className="bg-yellow-600 text-white">POTENTIALLY FAILING</Badge>;
     case 'down':
       return <Badge className="bg-red-600 text-white">DOWN</Badge>;
     default:
@@ -37,7 +37,7 @@ const WGTableRow = ({ rowKey, status, name, pubKey, endpoint, latestHandshake, t
                 <div className="flex items-center space-x-3">
                       <div className={`w-3 h-3 rounded-full ${
                         status === 'connected' ? 'bg-green-500' :
-                        status === 'flapping' ? 'bg-yellow-500' :
+                        status === 'potentially_failing' ? 'bg-yellow-500' :
                         'bg-red-500'
                       }`}></div>
                       <span className="text-slate-800">{name}</span>        

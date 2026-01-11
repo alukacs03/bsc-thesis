@@ -41,7 +41,10 @@ func APIKeyAuth() fiber.Handler {
 		searchIndex := hex.EncodeToString(sha[:8])
 
 		var candidates []models.APIKey
-		if err := database.DB.Where("hash_index = ? AND (expires_at IS NULL OR expires_at > ?) AND (revoked_at IS NULL)", searchIndex, time.Now()).Find(&candidates).Error; err != nil {
+		if err := database.DB.
+			Select("id", "node_id", "hash", "last_used_at").
+			Where("hash_index = ? AND (expires_at IS NULL OR expires_at > ?) AND (revoked_at IS NULL)", searchIndex, time.Now()).
+			Find(&candidates).Error; err != nil {
 			logger.Error("Database error while fetching API keys: ", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Authentication service error",
@@ -64,13 +67,19 @@ func APIKeyAuth() fiber.Handler {
 		}
 
 		now := time.Now()
-		matchedKey.LastUsedAt = &now
-		if err := database.DB.Save(matchedKey).Error; err != nil {
-			logger.Error("Failed to update API key last used timestamp: ", err)
+		
+		
+		if matchedKey.LastUsedAt == nil || now.Sub(*matchedKey.LastUsedAt) >= 30*time.Second {
+			if err := database.DB.Model(&models.APIKey{}).
+				Where("id = ?", matchedKey.ID).
+				UpdateColumn("last_used_at", now).Error; err != nil {
+				logger.Error("Failed to update API key last used timestamp: ", err)
+			} else {
+				matchedKey.LastUsedAt = &now
+			}
 		}
 
 		c.Locals("api_key", matchedKey)
-		c.Locals("node", matchedKey.Node)
 		c.Locals("node_id", matchedKey.NodeID)
 		return c.Next()
 	}

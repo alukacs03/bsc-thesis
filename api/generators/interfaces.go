@@ -6,10 +6,12 @@ import (
 )
 
 type NetworkInterface struct {
-	Name           string
-	Address        string
-	IsDummy        bool
-	WireGuardConf  string
+	Name            string
+	Address         string
+	IsDummy         bool
+	WireGuardConf   string
+	PostUpCommands  []string
+	PreDownCommands []string
 }
 
 func GenerateNetworkInterfacesConfig(loopbackIP string, wgInterfaces []NetworkInterface) string {
@@ -18,16 +20,32 @@ func GenerateNetworkInterfacesConfig(loopbackIP string, wgInterfaces []NetworkIn
 	sb.WriteString("auto dummy\n")
 	sb.WriteString("iface dummy inet static\n")
 	sb.WriteString(fmt.Sprintf("\taddress %s\n", loopbackIP))
-	sb.WriteString("\tpre-up /sbin/ip link add dummy type dummy\n")
-	sb.WriteString("\tpost-down /sbin/ip link del dummy\n")
+	
+	sb.WriteString("\tpre-up /sbin/ip link add dummy type dummy || true\n")
+	sb.WriteString("\tpost-down /sbin/ip link del dummy || true\n")
 
 	for _, iface := range wgInterfaces {
 		sb.WriteString(fmt.Sprintf("\nauto %s\n", iface.Name))
 		sb.WriteString(fmt.Sprintf("iface %s inet static\n", iface.Name))
 		sb.WriteString(fmt.Sprintf("\taddress %s\n", iface.Address))
-		sb.WriteString(fmt.Sprintf("\tpre-up /sbin/ip link add %s type wireguard\n", iface.Name))
+		
+		sb.WriteString(fmt.Sprintf("\tpre-up /sbin/ip link add %s type wireguard || true\n", iface.Name))
 		sb.WriteString(fmt.Sprintf("\tpre-up /usr/bin/wg setconf %s %s\n", iface.Name, iface.WireGuardConf))
-		sb.WriteString(fmt.Sprintf("\tpost-down /sbin/ip link delete %s\n", iface.Name))
+		for _, cmd := range iface.PostUpCommands {
+			cmd = strings.TrimSpace(cmd)
+			if cmd == "" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("\tpost-up %s\n", cmd))
+		}
+		for _, cmd := range iface.PreDownCommands {
+			cmd = strings.TrimSpace(cmd)
+			if cmd == "" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("\tpre-down %s\n", cmd))
+		}
+		sb.WriteString(fmt.Sprintf("\tpost-down /sbin/ip link delete %s || true\n", iface.Name))
 	}
 
 	return sb.String()

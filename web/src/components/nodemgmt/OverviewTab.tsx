@@ -1,3 +1,5 @@
+import { clampPercent, formatBytes, formatPercent } from "@/utils/format";
+
 interface OverviewTabProps {
     nodeData: {
         id?: number;
@@ -7,9 +9,11 @@ interface OverviewTabProps {
         status?: string;
         role?: string;
         lastSeen?: string;
-        cpu?: number;
-        memory?: number;
-        disk?: number;
+        cpu?: number | null;
+        memory?: number | null;
+        disk?: number | null;
+        diskUsedBytes?: number;
+        diskTotalBytes?: number;
         uptime?: string;
         version?: string;
         pods?: number;
@@ -23,6 +27,10 @@ interface OverviewTabProps {
 }
 
 const OverviewTab = ({ nodeData }: OverviewTabProps) => {
+  const cpu = clampPercent(nodeData.cpu ?? 0);
+  const memory = clampPercent(nodeData.memory ?? 0);
+  const disk = clampPercent(nodeData.disk ?? 0);
+
   return (
     <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -57,28 +65,30 @@ const OverviewTab = ({ nodeData }: OverviewTabProps) => {
             <div>
                 <div className="flex justify-between mb-1">
                 <span className="text-sm text-slate-600">CPU Usage</span>
-                <span className="text-sm text-slate-800">{nodeData.cpu}</span>
+                <span className="text-sm text-slate-800">{formatPercent(nodeData.cpu)}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${nodeData.cpu}%` }}></div>
+                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${cpu}%` }}></div>
                 </div>
             </div>
             <div>
                 <div className="flex justify-between mb-1">
                 <span className="text-sm text-slate-600">Memory Usage</span>
-                <span className="text-sm text-slate-800">{nodeData.memory}</span>
+                <span className="text-sm text-slate-800">{formatPercent(nodeData.memory)}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
-                <div className="bg-green-600 h-2 rounded-full" style={{ width: `${nodeData.memory}%` }}></div>
+                <div className="bg-green-600 h-2 rounded-full" style={{ width: `${memory}%` }}></div>
                 </div>
             </div>
             <div>
                 <div className="flex justify-between mb-1">
                 <span className="text-sm text-slate-600">Disk Usage</span>
-                <span className="text-sm text-slate-800">{nodeData.disk}</span>
+                <span className="text-sm text-slate-800">
+                    {formatPercent(nodeData.disk)} ({formatBytes(nodeData.diskUsedBytes)} / {formatBytes(nodeData.diskTotalBytes)})
+                </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
-                <div className="bg-yellow-600 h-2 rounded-full" style={{ width: `${nodeData.disk}%` }}></div>
+                <div className="bg-yellow-600 h-2 rounded-full" style={{ width: `${disk}%` }}></div>
                 </div>
             </div>
             </div>

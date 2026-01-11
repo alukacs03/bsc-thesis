@@ -1,5 +1,3 @@
-import React from 'react'
-
 const XMark = () => {
   return (
     <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

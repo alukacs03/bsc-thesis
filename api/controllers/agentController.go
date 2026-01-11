@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"gluon-api/database"
 	"gluon-api/logger"
@@ -363,6 +364,54 @@ func CheckAgentEnrollmentStatus(c *fiber.Ctx) error {
 func Heartbeat(c *fiber.Ctx) error {
 	nodeID := c.Locals("node_id").(uint)
 
+	type HeartbeatInput struct {
+		AgentVersion string   `json:"agent_version"`
+		DesiredRole  string   `json:"desired_role"`
+		CPUUsage     *float64 `json:"cpu_usage"`
+		MemoryUsage  *float64 `json:"memory_usage"`
+		DiskUsage    *float64 `json:"disk_usage"`
+		DiskTotalBytes *uint64 `json:"disk_total_bytes"`
+		DiskUsedBytes  *uint64 `json:"disk_used_bytes"`
+		UptimeSeconds  *uint64 `json:"uptime_seconds"`
+		Logs         []string `json:"logs"`
+		SystemUsers  []string `json:"system_users"`
+		SystemServices []struct {
+			Name          string `json:"name"`
+			Description   string `json:"description"`
+			ActiveState   string `json:"active_state"`
+			SubState      string `json:"sub_state"`
+			UnitFileState string `json:"unit_file_state"`
+		} `json:"system_services"`
+		WireGuardPeers []struct {
+			Interface           string `json:"interface"`
+			PeerPublicKey       string `json:"peer_public_key"`
+			Endpoint            string `json:"endpoint"`
+			AllowedIPs          string `json:"allowed_ips"`
+			LatestHandshakeUnix int64  `json:"latest_handshake_unix"`
+			RxBytes             uint64 `json:"rx_bytes"`
+			TxBytes             uint64 `json:"tx_bytes"`
+		} `json:"wireguard_peers"`
+		OSPFNeighbors []struct {
+			RouterID             string  `json:"router_id"`
+			Area                 string  `json:"area"`
+			State                string  `json:"state"`
+			Interface            string  `json:"interface"`
+			HelloIntervalSeconds *uint64 `json:"hello_interval_seconds"`
+			DeadIntervalSeconds  *uint64 `json:"dead_interval_seconds"`
+			Cost                 *uint64 `json:"cost"`
+			Priority             *uint64 `json:"priority"`
+		} `json:"ospf_neighbors"`
+	}
+
+	var input HeartbeatInput
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid heartbeat payload",
+			})
+		}
+	}
+
 	var node models.Node
 	if err := database.DB.First(&node, nodeID).Error; err != nil {
 		logger.Error("Node not found for heartbeat: ", "error", err)
@@ -371,11 +420,215 @@ func Heartbeat(c *fiber.Ctx) error {
 		})
 	}
 
+	previousStatus := node.Status
 	now := time.Now()
 	node.LastSeenAt = &now
 	if node.Status != models.NodeStatusActive {
 		node.Status = models.NodeStatusActive
 	}
+
+	if input.AgentVersion == "" {
+		ua := c.Get("User-Agent")
+		if strings.HasPrefix(ua, "gluon-agent/") {
+			rest := strings.TrimPrefix(ua, "gluon-agent/")
+			if ver, _, ok := strings.Cut(rest, " "); ok {
+				node.AgentVersion = ver
+			} else if ver, _, ok := strings.Cut(rest, "("); ok {
+				node.AgentVersion = strings.TrimSpace(ver)
+			} else {
+				node.AgentVersion = strings.TrimSpace(rest)
+			}
+		}
+	} else {
+		node.AgentVersion = input.AgentVersion
+	}
+
+	if input.DesiredRole != "" {
+		role := strings.ToLower(strings.TrimSpace(input.DesiredRole))
+		if role == string(models.NodeRoleHub) || role == string(models.NodeRoleWorker) {
+			node.ReportedDesiredRole = role
+
+			
+			
+			if role == string(models.NodeRoleHub) && node.Role != models.NodeRoleHub {
+				var hubCount int64
+				if err := database.DB.Model(&models.Node{}).Where("role = ?", models.NodeRoleHub).Count(&hubCount).Error; err != nil {
+					logger.Error("Failed to count hubs for promotion", "error", err, "node_id", node.ID)
+				} else if hubCount >= 2 {
+					logger.Warn("Refusing to promote node to hub (max hubs reached)", "node_id", node.ID, "hub_count", hubCount)
+				} else {
+					if err := database.DB.Model(&models.Node{}).Where("id = ?", node.ID).Update("role", models.NodeRoleHub).Error; err != nil {
+						logger.Error("Failed to promote node to hub", "error", err, "node_id", node.ID)
+					} else {
+						node.Role = models.NodeRoleHub
+						logger.Info("Promoted node to hub based on agent desired_role", "node_id", node.ID, "hostname", node.Hostname)
+
+						
+						if err := services.SetupNodeNetworking(&node); err != nil {
+							logger.Error("Failed to setup networking after hub promotion", "error", err, "node_id", node.ID)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if input.CPUUsage != nil {
+		v := *input.CPUUsage
+		node.CPUUsage = &v
+	} else {
+		node.CPUUsage = nil
+	}
+	if input.MemoryUsage != nil {
+		v := *input.MemoryUsage
+		node.MemoryUsage = &v
+	} else {
+		node.MemoryUsage = nil
+	}
+	if input.DiskUsage != nil {
+		v := *input.DiskUsage
+		node.DiskUsage = &v
+	} else {
+		node.DiskUsage = nil
+	}
+
+	if input.DiskTotalBytes != nil {
+		v := *input.DiskTotalBytes
+		node.DiskTotalBytes = &v
+	} else {
+		node.DiskTotalBytes = nil
+	}
+	if input.DiskUsedBytes != nil {
+		v := *input.DiskUsedBytes
+		node.DiskUsedBytes = &v
+	} else {
+		node.DiskUsedBytes = nil
+	}
+	if input.UptimeSeconds != nil {
+		v := *input.UptimeSeconds
+		node.UptimeSeconds = &v
+	} else {
+		node.UptimeSeconds = nil
+	}
+
+	if len(input.WireGuardPeers) > 0 {
+		var ifaces []models.WireGuardInterface
+		if err := database.DB.Where("node_id = ?", node.ID).Find(&ifaces).Error; err != nil {
+			logger.Error("Failed to load interfaces for WG telemetry", "error", err, "node_id", node.ID)
+		} else {
+			ifaceByName := make(map[string]models.WireGuardInterface, len(ifaces))
+			for _, iface := range ifaces {
+				ifaceByName[iface.Name] = iface
+			}
+
+			seenIfaces := make(map[string]bool)
+			for _, p := range input.WireGuardPeers {
+				iface, ok := ifaceByName[p.Interface]
+				if !ok {
+					continue
+				}
+				seenIfaces[p.Interface] = true
+
+				var handshakeAt *time.Time
+				if p.LatestHandshakeUnix > 0 {
+					t := time.Unix(p.LatestHandshakeUnix, 0)
+					handshakeAt = &t
+				}
+
+				updates := map[string]any{
+					"endpoint":          p.Endpoint,
+					"allowed_ips":       p.AllowedIPs,
+					"last_handshake_at": handshakeAt,
+					"rx_bytes":          p.RxBytes,
+					"tx_bytes":          p.TxBytes,
+				}
+
+				tx := database.DB.Model(&models.NodePeer{}).
+					Where("interface_id = ? AND peer_public_key = ?", iface.ID, p.PeerPublicKey).
+					Updates(updates)
+				if tx.Error != nil {
+					logger.Error("Failed to update WG peer telemetry", "error", tx.Error, "node_id", node.ID, "interface", p.Interface)
+					continue
+				}
+				if tx.RowsAffected == 0 && p.Endpoint != "" && p.Endpoint != "(none)" {
+					fallbackUpdates := make(map[string]any, len(updates)+1)
+					for k, v := range updates {
+						fallbackUpdates[k] = v
+					}
+					fallbackUpdates["peer_public_key"] = p.PeerPublicKey
+
+					tx2 := database.DB.Model(&models.NodePeer{}).
+						Where("interface_id = ? AND endpoint = ?", iface.ID, p.Endpoint).
+						Updates(fallbackUpdates)
+					if tx2.Error != nil {
+						logger.Error("Failed to update WG peer telemetry (endpoint fallback)", "error", tx2.Error, "node_id", node.ID, "interface", p.Interface)
+					}
+				}
+			}
+
+			for name := range seenIfaces {
+				iface := ifaceByName[name]
+				if iface.Status != models.InterfaceStatusUp {
+					_ = database.DB.Model(&models.WireGuardInterface{}).
+						Where("id = ?", iface.ID).
+						Update("status", models.InterfaceStatusUp).Error
+				}
+			}
+		}
+	}
+
+	if input.OSPFNeighbors == nil {
+		input.OSPFNeighbors = []struct {
+			RouterID             string  `json:"router_id"`
+			Area                 string  `json:"area"`
+			State                string  `json:"state"`
+			Interface            string  `json:"interface"`
+			HelloIntervalSeconds *uint64 `json:"hello_interval_seconds"`
+			DeadIntervalSeconds  *uint64 `json:"dead_interval_seconds"`
+			Cost                 *uint64 `json:"cost"`
+			Priority             *uint64 `json:"priority"`
+		}{}
+	}
+	ospfJSON, err := json.Marshal(input.OSPFNeighbors)
+	if err != nil {
+		logger.Error("Failed to marshal OSPF neighbors", "error", err, "node_id", node.ID)
+	} else {
+		node.OSPFNeighbors = ospfJSON
+	}
+
+	logsJSON, err := json.Marshal(input.Logs)
+	if err != nil {
+		logger.Error("Failed to marshal heartbeat logs", "error", err, "node_id", node.ID)
+	} else {
+		node.HeartbeatLogs = logsJSON
+	}
+
+	if input.SystemUsers == nil {
+		input.SystemUsers = []string{}
+	}
+	usersJSON, err := json.Marshal(input.SystemUsers)
+	if err != nil {
+		logger.Error("Failed to marshal system users", "error", err, "node_id", node.ID)
+	} else {
+		node.SystemUsers = usersJSON
+	}
+
+	if input.SystemServices == nil {
+		input.SystemServices = []struct {
+			Name          string `json:"name"`
+			Description   string `json:"description"`
+			ActiveState   string `json:"active_state"`
+			SubState      string `json:"sub_state"`
+			UnitFileState string `json:"unit_file_state"`
+		}{}
+	}
+	servicesJSON, err := json.Marshal(input.SystemServices)
+	if err != nil {
+		logger.Error("Failed to marshal system services", "error", err, "node_id", node.ID)
+	} else {
+		node.SystemServices = servicesJSON
+	}
+
 	if err := database.DB.Save(&node).Error; err != nil {
 		logger.Error("Failed to update node heartbeat: ", "error", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -383,23 +636,58 @@ func Heartbeat(c *fiber.Ctx) error {
 		})
 	}
 
+	if previousStatus != models.NodeStatusActive && node.Status == models.NodeStatusActive {
+		event := models.Event{
+			Kind:    models.EventKindNodeOnline,
+			NodeID:  &node.ID,
+			Message: "Heartbeat received; node marked online",
+		}
+		if err := database.DB.Create(&event).Error; err != nil {
+			logger.Error("Failed to create node online event", "error", err, "node_id", node.ID)
+		}
+	}
+
+	commands := []models.NodeCommand{}
+	if err := database.DB.
+		Where("node_id = ? AND status = ?", node.ID, models.NodeCommandStatusPending).
+		Order("id asc").
+		Limit(10).
+		Find(&commands).Error; err != nil {
+		logger.Error("Failed to load pending node commands", "error", err, "node_id", node.ID)
+		commands = []models.NodeCommand{}
+	}
+
+	if len(commands) > 0 {
+		now := time.Now()
+		for i := range commands {
+			cmd := commands[i]
+			_ = database.DB.Model(&models.NodeCommand{}).
+				Where("id = ? AND status = ?", cmd.ID, models.NodeCommandStatusPending).
+				Updates(map[string]any{
+					"status":     models.NodeCommandStatusRunning,
+					"started_at": &now,
+				}).Error
+			commands[i].Status = models.NodeCommandStatusRunning
+			commands[i].StartedAt = &now
+		}
+	}
+
 	logger.Debug("Heartbeat received from node", "node_id", nodeID)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Heartbeat received",
+		"message":  "Heartbeat received",
+		"commands": commands,
 	})
 
 }
 
 func ListAgentEnrollmentRequests(c *fiber.Ctx) error {
 	var requests []models.NodeEnrollmentRequest
-	if err := database.DB.Preload("ApprovedBy").Find(&requests).Error; err != nil {
+	if err := database.DB.Preload("ApprovedBy").Preload("RejectedBy").Find(&requests).Error; err != nil {
 		logger.Error("Failed to list enrollment requests: ", "error", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to list enrollment requests",
 		})
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"enrollment_requests": requests,
-	})
+	return c.JSON(requests)
 }

@@ -4,7 +4,11 @@ import (
 	"gluon-api/controllers"
 	"gluon-api/database"
 	"gluon-api/logger"
+	"gluon-api/middleware"
+	"gluon-api/metrics"
+	"gluon-api/models"
 	"gluon-api/routes"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -20,6 +24,8 @@ func main() {
 	}
 
 	controllers.AddDemoUser()
+	startWorkerOfflineMonitor()
+	metrics.StartDatabaseMetrics(30 * time.Second)
 
 	logger.Info("Database connection successful")
 
@@ -34,6 +40,9 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	logger.Debug("Setting up Prometheus middleware")
+	app.Use(middleware.PrometheusMetrics())
+
 	logger.Debug("Setting up routes")
 	routes.SetupRoutes(app)
 
@@ -43,4 +52,70 @@ func main() {
 		logger.Error("Failed to start server:", err)
 		panic(err)
 	}
+}
+
+func startWorkerOfflineMonitor() {
+	const (
+		checkInterval = 30 * time.Second
+		offlineAfter  = 2 * time.Minute
+	)
+
+	go func() {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			cutoff := time.Now().Add(-offlineAfter)
+			var nodes []models.Node
+			result := database.DB.
+				Where(
+					`role = ? AND status = ? AND (
+						(last_seen_at IS NOT NULL AND last_seen_at < ?) OR
+						(last_seen_at IS NULL AND created_at < ?)
+					)`,
+					models.NodeRoleWorker,
+					models.NodeStatusActive,
+					cutoff,
+					cutoff,
+				).
+				Find(&nodes)
+
+			if result.Error != nil {
+				logger.Error("Failed to find stale workers", "error", result.Error)
+				continue
+			}
+
+			var marked int64
+			for i := range nodes {
+				node := nodes[i]
+				update := database.DB.
+					Model(&models.Node{}).
+					Where("id = ? AND status = ?", node.ID, models.NodeStatusActive).
+					Updates(map[string]any{
+						"status": models.NodeStatusOffline,
+					})
+				if update.Error != nil {
+					logger.Error("Failed to mark worker offline", "error", update.Error, "node_id", node.ID)
+					continue
+				}
+				if update.RowsAffected == 0 {
+					continue
+				}
+
+				marked++
+				event := models.Event{
+					Kind:    models.EventKindNodeOffline,
+					NodeID:  &node.ID,
+					Message: "Node not seen for >2m; marked offline",
+				}
+				if err := database.DB.Create(&event).Error; err != nil {
+					logger.Error("Failed to create node offline event", "error", err, "node_id", node.ID)
+				}
+			}
+
+			if marked > 0 {
+				logger.Info("Marked workers offline", "count", marked)
+			}
+		}
+	}()
 }

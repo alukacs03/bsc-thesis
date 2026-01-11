@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { getStatusColor, getMetricColor } from "../../utils/Helpers";
+import { clampPercent, formatBytes, formatPercent } from "@/utils/format";
 
 interface OverviewTabProps {
     node: {
@@ -14,11 +15,16 @@ interface OverviewTabProps {
         cpu: number;
         memory: number;
         disk: number;
+        diskUsedBytes?: number;
+        diskTotalBytes?: number;
     }
 }
 
 const OverviewTab = ({ node }: OverviewTabProps) => {
     const navigate = useNavigate();
+    const cpu = clampPercent(node?.cpu ?? 0);
+    const memory = clampPercent(node?.memory ?? 0);
+    const disk = clampPercent(node?.disk ?? 0);
   return (
         <div className="p-6">
             <div className="space-y-6">
@@ -55,12 +61,12 @@ const OverviewTab = ({ node }: OverviewTabProps) => {
                 <div>
                 <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-600">CPU Usage</span>
-                    <span className={getMetricColor(node?.cpu, 'cpu')}>{node?.cpu}%</span>
+                    <span className={getMetricColor(cpu, 'cpu')}>{formatPercent(node?.cpu)}</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
-                    className={`h-2 rounded-full ${node?.cpu > 80 ? 'bg-red-500' : node?.cpu > 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                    style={{ width: `${node?.cpu}%` }}
+                    className={`h-2 rounded-full ${cpu > 80 ? 'bg-red-500' : cpu > 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                    style={{ width: `${cpu}%` }}
                     ></div>
                 </div>
                 </div>
@@ -68,12 +74,12 @@ const OverviewTab = ({ node }: OverviewTabProps) => {
                 <div>
                 <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-600">Memory Usage</span>
-                    <span className={getMetricColor(node?.memory, 'memory')}>{node?.memory}%</span>
+                    <span className={getMetricColor(memory, 'memory')}>{formatPercent(node?.memory)}</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
-                    className={`h-2 rounded-full ${node?.memory > 80 ? 'bg-red-500' : node?.memory > 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                    style={{ width: `${node?.memory}%` }}
+                    className={`h-2 rounded-full ${memory > 80 ? 'bg-red-500' : memory > 60 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                    style={{ width: `${memory}%` }}
                     ></div>
                 </div>
                 </div>
@@ -81,12 +87,14 @@ const OverviewTab = ({ node }: OverviewTabProps) => {
                 <div>
                 <div className="flex justify-between text-sm mb-2">
                     <span className="text-slate-600">Disk Usage</span>
-                    <span className={getMetricColor(node?.disk, 'disk')}>{node?.disk}%</span>
+                    <span className={getMetricColor(disk, 'disk')}>
+                      {formatPercent(node?.disk)} ({formatBytes(node?.diskUsedBytes)} / {formatBytes(node?.diskTotalBytes)})
+                    </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
-                    className={`h-2 rounded-full ${node?.disk > 85 ? 'bg-red-500' : node?.disk > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                    style={{ width: `${node?.disk}%` }}
+                    className={`h-2 rounded-full ${disk > 85 ? 'bg-red-500' : disk > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                    style={{ width: `${disk}%` }}
                     ></div>
                 </div>
                 </div>

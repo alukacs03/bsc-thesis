@@ -1,18 +1,19 @@
-import type NodeRequest from "@/types/Node"
 import type UserRequest from "@/types/User"
+import type { NodeEnrollmentRequest } from "@/services/types/enrollment"
 import Node from "./approvals/Node"
 import Users from "./approvals/Users"
 
 interface ApprovalsTabContentProps {
     selectedTab: string;
     selectedCategory: string;
-    nodeApprovals?: NodeRequest[];
+    nodeApprovals?: NodeEnrollmentRequest[];
     userApprovals?: UserRequest[];
     onUserStatusChange?: () => void;
+    onNodeStatusChange?: () => void;
 }
 
 
-const ApprovalsTabContent = ({ selectedTab, selectedCategory, nodeApprovals, userApprovals, onUserStatusChange }: ApprovalsTabContentProps) => {
+const ApprovalsTabContent = ({ selectedTab, selectedCategory, nodeApprovals, userApprovals, onUserStatusChange, onNodeStatusChange }: ApprovalsTabContentProps) => {
     return (
         <>
             {selectedCategory === 'vps' && (
@@ -21,9 +22,10 @@ const ApprovalsTabContent = ({ selectedTab, selectedCategory, nodeApprovals, use
                 <Node
                     approvals={nodeApprovals.filter(approval =>
                     selectedTab === 'pending' ? approval.status === 'pending' :
-                    selectedTab === 'approved' ? approval.status === 'approved' :
+                    selectedTab === 'approved' ? (approval.status === 'approved' || approval.status === 'accepted') :
                     approval.status === 'rejected'
                     )}
+                    onRefetch={onNodeStatusChange}
                 />
                 ) : (
                 <p className="text-sm text-slate-600">No VPS node requests available.</p>

@@ -39,6 +39,28 @@ type Node struct {
 	Status     NodeStatus     `json:"status" gorm:"default:'active';not null"`
 	LastSeenAt *time.Time     `json:"last_seen_at,omitempty"`
 
+	AgentVersion string   `json:"agent_version" gorm:"not null;default:''"`
+	CPUUsage     *float64 `json:"cpu_usage"`
+	MemoryUsage  *float64 `json:"memory_usage"`
+	DiskUsage    *float64 `json:"disk_usage"`
+	DiskTotalBytes *uint64 `json:"disk_total_bytes"`
+	DiskUsedBytes  *uint64 `json:"disk_used_bytes"`
+	UptimeSeconds  *uint64 `json:"uptime_seconds"`
+	HeartbeatLogs datatypes.JSON `json:"heartbeat_logs,omitempty"`
+	OSPFNeighbors datatypes.JSON `json:"ospf_neighbors,omitempty"`
+	SystemUsers datatypes.JSON `json:"system_users,omitempty"`
+	SystemServices datatypes.JSON `json:"system_services,omitempty"`
+
+	
+	
+	ReportedDesiredRole string `json:"reported_desired_role" gorm:"not null;default:''"`
+
+	
+	K8sState         string     `json:"k8s_state" gorm:"not null;default:'not_configured'"`
+	K8sJoinedAt      *time.Time `json:"k8s_joined_at,omitempty"`
+	K8sLastAttemptAt *time.Time `json:"k8s_last_attempt_at,omitempty"`
+	K8sLastError     string     `json:"k8s_last_error,omitempty" gorm:"not null;default:''"`
+
 	EnrolledByID        *uint `json:"enrolled_by_id,omitempty"`
 	EnrolledBy          *User `json:"enrolled_by,omitempty" gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	EnrollmentRequestID uint  `json:"enrollment_request_id" gorm:"not null"`

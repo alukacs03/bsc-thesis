@@ -5,7 +5,9 @@ import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import type { User } from '@/types/User';
+import { authAPI } from '@/services/api/auth';
+import { handleAPIError } from '@/utils/errorHandler';
+import { toast } from 'sonner';
 
 const LoginView = () => {
   const [email, setEmail] = useState('');
@@ -15,37 +17,20 @@ const LoginView = () => {
 
   const onLogin = async () => {
     if (!email || !password) {
-      alert('Please enter email and password');
+      toast.error('Please enter email and password');
       return;
     }
 
     try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const errorBody: { error?: string } | null = await response.json().catch(() => null);
-        throw new Error(errorBody?.error ?? 'Failed to sign in. Please check your credentials.');
-      }
-
-      const userResponse = await fetch('/api/user', { credentials: 'include' });
-      if (!userResponse.ok) {
-        throw new Error('Failed to load user details. Please try again.');
-      }
-
-      const user: User = await userResponse.json();
+      await authAPI.login({ email, password });
+      const user = await authAPI.getCurrentUser();
       await login(user);
       navigate('/dashboard');
+      toast.success('Welcome back!');
     } catch (error) {
       console.error('Login failed', error);
-      const message = error instanceof Error ? error.message : 'Unexpected error during sign in.';
-      alert(message);
+      const message = handleAPIError(error, 'login');
+      toast.error(message);
     }
   };
   const onNavigateToRegister = () => navigate('/register');

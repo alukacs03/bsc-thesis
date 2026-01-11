@@ -1,179 +1,225 @@
-import type NodeRequest from "../../types/Node"
-import { AlertTriangle, CheckCircle, Cpu, HardDrive, MapPin, Network, Server, XCircle } from "lucide-react";
-import { getPriorityColor } from "../../utils/Helpers";
-
+import { useState } from "react";
+import type { NodeEnrollmentRequest } from "@/services/types/enrollment"
+import { CheckCircle, Server, XCircle } from "lucide-react";
+import { enrollmentsAPI } from "@/services/api/enrollments";
+import { handleAPIError } from "@/utils/errorHandler";
+import { toast } from "sonner";
+import APIKeyModal from "./APIKeyModal";
 
 interface NodeProps {
-    approvals: NodeRequest[];
-
+    approvals: NodeEnrollmentRequest[];
+    onRefetch?: () => void;
 }
 
-const Node = ({ approvals }: NodeProps ) => {
+const Node = ({ approvals, onRefetch }: NodeProps) => {
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKeyNodeName, setApiKeyNodeName] = useState<string>("");
+  const [showAPIKeyModal, setShowAPIKeyModal] = useState(false);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const handleApprove = async (id: number, hostname: string) => {
+    if (processingId) return; // Prevent double clicks
+
+    setProcessingId(id);
+    try {
+      // First approve the enrollment
+      await enrollmentsAPI.approve(id);
+
+      // Then generate API key - need to get the converted node ID
+      // Since we don't have it yet, we'll use the enrollment ID
+      const response = await enrollmentsAPI.generateAPIKey(id);
+
+      // Show the API key to user
+      setApiKey(response.api_key);
+      setApiKeyNodeName(hostname);
+      setShowAPIKeyModal(true);
+
+      toast.success('Node enrollment approved successfully');
+
+      // Trigger parent refetch
+      onRefetch?.();
+    } catch (error) {
+      const message = handleAPIError(error, 'approve enrollment');
+      toast.error(message);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    if (!rejectReason.trim()) {
+      toast.error('Please provide a reason for rejection');
+      return;
+    }
+
+    if (processingId) return;
+
+    setProcessingId(id);
+    try {
+      await enrollmentsAPI.reject(id, { reason: rejectReason });
+      toast.success('Node enrollment rejected');
+      setRejectingId(null);
+      setRejectReason("");
+      onRefetch?.();
+    } catch (error) {
+      const message = handleAPIError(error, 'reject enrollment');
+      toast.error(message);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleString();
+  };
+
   return (
     <>
         <div className="space-y-4">
             {approvals.map((request) => (
-            <div key={request.id} className={`border border-slate-200 rounded-lg p-6 hover:border-blue-300 transition-colors ${request.rejectedAt ? 'bg-red-50' : ''} ${request.approvedAt ? 'bg-green-50' : ''}`}>
+            <div
+              key={request.id}
+              className={`border border-slate-200 rounded-lg p-6 hover:border-blue-300 transition-colors ${
+                request.status === 'rejected' ? 'bg-red-50' : ''
+              } ${(request.status === 'approved' || request.status === 'accepted') ? 'bg-green-50' : ''}`}
+            >
                 <div className="flex items-start justify-between">
                 <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-4">
-                    <Server className="w-6 h-6 text-blue-600" />
-                    <h4 className="text-lg text-slate-800">{request.hostname}</h4>
-                    <span className={`px-2 py-1 rounded text-xs border ${getPriorityColor(request.priority)}`}>
-                        {request.priority}
-                    </span>
-                    {request.priority === 'urgent' && (
-                        <div className="flex items-center space-x-1 text-red-600">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="text-xs">URGENT</span>
-                        </div>
-                    )}
+                      <Server className="w-6 h-6 text-blue-600" />
+                      <h4 className="text-lg font-semibold text-slate-800">{request.hostname}</h4>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        request.desired_role === 'hub'
+                          ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                          : 'bg-blue-100 text-blue-700 border border-blue-300'
+                      }`}>
+                        {request.desired_role}
+                      </span>
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                        <p className="text-sm text-slate-600">IP Address</p>
-                        <p className="text-sm text-slate-800 font-mono">{request.ipAddress}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-slate-600">Location</p>
-                        <div className="flex items-center space-x-1">
-                        <MapPin className="w-3 h-3 text-slate-500" />
-                        <p className="text-sm text-slate-800">{request.location}</p>
-                        </div>
-                    </div>
-                    <div>
+                      <div>
+                        <p className="text-sm text-slate-600">Public IP</p>
+                        <p className="text-sm text-slate-800 font-mono">{request.public_ip}</p>
+                      </div>
+                      <div>
                         <p className="text-sm text-slate-600">Provider</p>
                         <p className="text-sm text-slate-800">{request.provider}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-slate-600">Instance Type</p>
-                        <p className="text-sm text-slate-800">{request.instanceType}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-slate-600">Requested by</p>
-                        <p className="text-sm text-slate-800">{request.requestedBy}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-slate-600">Requested at</p>
-                        <p className="text-sm text-slate-800">{request.requestedAt}</p>
-                    </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div className="mb-4">
-                        <p className="text-sm text-slate-600 mb-2">Purpose</p>
-                        <p className="text-sm text-slate-800">{request.purpose}</p>
-                        </div>
-
-                        {(request.approvedAt) && (
-                            <>
-                                <div className="mb-4">
-                                    <p className="text-sm text-slate-600 mb-2">Approved At</p>
-                                    <p className="text-sm text-slate-800">{request.approvedAt}</p>
-                                </div>
-                                <div className="mb-4">
-                                    <p className="text-sm text-slate-600 mb-2">Approved By</p>
-                                    <p className="text-sm text-slate-800">{request.approvedBy}</p>
-                                </div>
-                            </>
-                        )}
-
-                        {(request.rejectedAt) && (
-                            <>
-                                <div className="mb-4">
-                                    <p className="text-sm text-slate-600 mb-2">Rejected At</p>
-                                    <p className="text-sm text-slate-800">{request.rejectedAt}</p>
-                                </div>
-                                <div className="mb-4">
-                                    <p className="text-sm text-slate-600 mb-2">Rejected By</p>
-                                    <p className="text-sm text-slate-800">{request.rejectedBy}</p>
-                                </div>
-                            </>
-                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-600">Operating System</p>
+                        <p className="text-sm text-slate-800">{request.os}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-600">Requested At</p>
+                        <p className="text-sm text-slate-800">{formatDate(request.requested_at)}</p>
+                      </div>
+                      {request.approved_at && (
+                        <>
+                          <div>
+                            <p className="text-sm text-slate-600">Approved At</p>
+                            <p className="text-sm text-slate-800">{formatDate(request.approved_at)}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-slate-600">Approved By</p>
+                            <p className="text-sm text-slate-800">{request.approved_by?.email || 'N/A'}</p>
+                          </div>
+                        </>
+                      )}
+                      {request.rejected_at && (
+                        <>
+                          <div>
+                            <p className="text-sm text-slate-600">Rejected At</p>
+                            <p className="text-sm text-slate-800">{formatDate(request.rejected_at)}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-slate-600">Rejected By</p>
+                            <p className="text-sm text-slate-800">{request.rejected_by?.email || 'N/A'}</p>
+                          </div>
+                        </>
+                      )}
                     </div>
 
-                    {(request.reason) && (
-                    <div className="mb-4">
-                        <p className="text-sm text-slate-600 mb-2">Reason for Rejection</p>
-                        <p className="text-sm text-slate-800">{request.reason}</p>
-                    </div>
+                    {request.rejection_reason && (
+                      <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-sm text-slate-600 mb-1 font-medium">Reason for Rejection</p>
+                        <p className="text-sm text-red-800">{request.rejection_reason}</p>
+                      </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div className="bg-slate-50 rounded-lg p-4">
-                        <p className="text-sm text-slate-600 mb-2">Server Specifications</p>
-                        <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center space-x-2">
-                            <Cpu className="w-4 h-4 text-slate-500" />
-                            <span className="text-slate-600">CPU:</span>
-                            </div>
-                            <span className="text-slate-800">{request.specs.cpu}</span>
+                    {request.status === 'pending' && rejectingId === request.id && (
+                      <div className="mb-4 p-4 border border-slate-200 rounded-lg bg-slate-50">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Rejection Reason
+                        </label>
+                        <textarea
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          rows={3}
+                          placeholder="Provide a reason for rejecting this enrollment request..."
+                        />
+                        <div className="flex space-x-2 mt-2">
+                          <button
+                            onClick={() => handleReject(request.id)}
+                            disabled={processingId === request.id}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors disabled:opacity-50"
+                          >
+                            {processingId === request.id ? 'Processing...' : 'Confirm Rejection'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setRejectingId(null);
+                              setRejectReason("");
+                            }}
+                            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
                         </div>
-                        <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center space-x-2">
-                            <Server className="w-4 h-4 text-slate-500" />
-                            <span className="text-slate-600">Memory:</span>
-                            </div>
-                            <span className="text-slate-800">{request.specs.memory}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center space-x-2">
-                            <HardDrive className="w-4 h-4 text-slate-500" />
-                            <span className="text-slate-600">Storage:</span>
-                            </div>
-                            <span className="text-slate-800">{request.specs.storage}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center space-x-2">
-                            <Network className="w-4 h-4 text-slate-500" />
-                            <span className="text-slate-600">Bandwidth:</span>
-                            </div>
-                            <span className="text-slate-800">{request.specs.bandwidth}</span>
-                        </div>
-                        </div>
-                    </div>
-                    
-                    <div className="bg-slate-50 rounded-lg p-4">
-                        <p className="text-sm text-slate-600 mb-2">Security & Access</p>
-                        <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600">Security Group:</span>
-                            <span className="text-slate-800">{request.securityGroup}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600">SSH Key:</span>
-                            <span className="text-slate-800">{request.sshKey}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600">Est. Cost:</span>
-                            <span className="text-slate-800">{request.estimatedCost}</span>
-                        </div>
-                        </div>
-                    </div>
-                    </div>
+                      </div>
+                    )}
                 </div>
-                <div className="flex flex-col space-y-2 ml-6">
+
+                {request.status === 'pending' && (
+                  <div className="flex flex-col space-y-2 ml-6">
                     <button
-                    onClick={() => handleApprove(request.id)}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex items-center space-x-2"
+                      onClick={() => handleApprove(request.id, request.hostname)}
+                      disabled={processingId === request.id}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors flex items-center space-x-2 disabled:opacity-50"
                     >
-                    <CheckCircle className="w-4 h-4" />
-                    <span>Approve</span>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>{processingId === request.id ? 'Processing...' : 'Approve'}</span>
                     </button>
                     <button
-                    onClick={() => handleReject(request.id)}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors flex items-center space-x-2"
+                      onClick={() => setRejectingId(request.id)}
+                      disabled={processingId === request.id || rejectingId === request.id}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors flex items-center space-x-2 disabled:opacity-50"
                     >
-                    <XCircle className="w-4 h-4" />
-                    <span>Reject</span>
+                      <XCircle className="w-4 h-4" />
+                      <span>Reject</span>
                     </button>
-                </div>
+                  </div>
+                )}
                 </div>
             </div>
             ))}
         </div>
+
+        {showAPIKeyModal && apiKey && (
+          <APIKeyModal
+            apiKey={apiKey}
+            nodeName={apiKeyNodeName}
+            onClose={() => {
+              setShowAPIKeyModal(false);
+              setApiKey(null);
+              setApiKeyNodeName("");
+            }}
+          />
+        )}
     </>
   )
 }

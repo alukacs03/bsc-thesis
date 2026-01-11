@@ -8,6 +8,7 @@ type IPPoolKind string
 
 const (
 	IPPoolKindWireGuard IPPoolKind = "wireguard"
+	IPPoolKindKubernetes IPPoolKind = "kubernetes"
 )
 
 type IPPoolPurpose string
@@ -17,6 +18,7 @@ const (
 	IPPoolPurposeHubToHub   IPPoolPurpose = "hub_to_hub"
 	IPPoolPurposeHub1Worker IPPoolPurpose = "hub1_worker"
 	IPPoolPurposeHub2Worker IPPoolPurpose = "hub2_worker"
+	IPPoolPurposeKubernetesServices IPPoolPurpose = "kubernetes_services"
 )
 
 type IPPool struct {
@@ -79,6 +81,7 @@ type NodeConfig struct {
 	WireGuardConfigs       string `json:"wireguard_configs" gorm:"type:text"`
 	NetworkInterfaceConfig string `json:"network_interface_config" gorm:"type:text"`
 	FRRConfig              string `json:"frr_config" gorm:"type:text"`
+	SSHAuthorizedKeys      string `json:"ssh_authorized_keys" gorm:"type:text"`
 
 	Hash string `json:"hash" gorm:"not null"`
 
