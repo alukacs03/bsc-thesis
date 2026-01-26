@@ -6,6 +6,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -17,6 +19,9 @@ type CommandResult struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
+
+// DecommissionHandler is set by main to handle decommission commands
+var DecommissionHandler func()
 
 func executeCommands(commands []struct {
 	ID      uint            `json:"id"`
@@ -31,11 +36,34 @@ func executeCommands(commands []struct {
 		switch strings.ToLower(strings.TrimSpace(cmd.Kind)) {
 		case "restart_service":
 			out = append(out, runRestartService(cmd.ID, cmd.Payload))
+		case "decommission":
+			out = append(out, runDecommission(cmd.ID))
 		default:
 			out = append(out, CommandResult{ID: cmd.ID, Status: "failed", Error: "unsupported command"})
 		}
 	}
 	return out
+}
+
+func runDecommission(id uint) CommandResult {
+	log.Println("Received decommission command, initiating cleanup...")
+
+	// If a handler is set, call it (allows main to do cleanup)
+	if DecommissionHandler != nil {
+		DecommissionHandler()
+	}
+
+	// Return success before exiting
+	result := CommandResult{ID: id, Status: "succeeded", Output: "Decommission initiated"}
+
+	// Schedule exit after a short delay to allow result to be sent
+	go func() {
+		time.Sleep(2 * time.Second)
+		log.Println("Agent decommissioned, exiting...")
+		os.Exit(0)
+	}()
+
+	return result
 }
 
 func runRestartService(id uint, payload json.RawMessage) CommandResult {

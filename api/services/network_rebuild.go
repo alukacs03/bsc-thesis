@@ -57,7 +57,10 @@ func RebuildNetworking() error {
 	}
 
 	var nodes []models.Node
-	if err := database.DB.Order("id asc").Find(&nodes).Error; err != nil {
+	if err := database.DB.
+		Where("status <> ?", models.NodeStatusDecommissioned).
+		Order("id asc").
+		Find(&nodes).Error; err != nil {
 		return err
 	}
 	for i := range nodes {

@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/utils/format";
 import { handleAPIError } from "@/utils/errorHandler";
 import { toast } from "sonner";
-import { ChangeEvent, useEffect, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useEffect, useState } from "react";
 
 type DeploymentSettingsForm = {
   loopbackCIDR: string;

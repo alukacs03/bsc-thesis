@@ -7,6 +7,7 @@ import (
 	"gluon-api/logger"
 	"gluon-api/models"
 	"gluon-api/utils"
+	"os"
 	"strconv"
 	"time"
 
@@ -459,4 +460,27 @@ func getUserFromToken(c *fiber.Ctx) (*models.User, error) {
 	}
 
 	return &user, nil
+}
+
+// GetCACertificate returns the CA certificate for agents to trust.
+// This endpoint is unauthenticated so agents can bootstrap TLS trust.
+func GetCACertificate(c *fiber.Ctx) error {
+	cfg := config.Current()
+	if !cfg.TLSEnabled {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "TLS is not enabled",
+		})
+	}
+
+	certData, err := os.ReadFile(cfg.CACertPath)
+	if err != nil {
+		logger.Error("Failed to read CA certificate", "error", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "CA certificate not available",
+		})
+	}
+
+	c.Set("Content-Type", "application/x-pem-file")
+	c.Set("Content-Disposition", "attachment; filename=ca.crt")
+	return c.Send(certData)
 }

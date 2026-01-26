@@ -257,8 +257,9 @@ func createLink(hub *models.Node, worker *models.Node) error {
 			desired := fmt.Sprintf("%s/32, %s, 224.0.0.5/32", workerLoopback, existingLink.Subnet)
 			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", hubIface.ID).Update("allowed_ips", desired)
 			database.DB.Model(&hubIface).Update("listen_port", hubListenPort)
+			// Clear endpoint for hub-side worker peers - allows NATed workers
 			database.DB.Model(&models.NodePeer{}).Where("interface_id = ?", hubIface.ID).
-				Update("endpoint", fmt.Sprintf("%s:%d", worker.PublicIP, workerListenPort))
+				Update("endpoint", "")
 		}
 
 		var workerIface models.WireGuardInterface
@@ -330,10 +331,13 @@ func createLink(hub *models.Node, worker *models.Node) error {
 		return fmt.Errorf("failed to get worker loopback IP: %w", err)
 	}
 
+	// Note: Hub peers do NOT get an endpoint for workers.
+	// This allows NATed workers to connect - the hub learns their endpoint
+	// dynamically from the first incoming packet.
 	hubPeer := models.NodePeer{
 		InterfaceID:         hubInterface.ID,
 		PeerNodeID:          worker.ID,
-		Endpoint:            fmt.Sprintf("%s:%d", worker.PublicIP, workerListenPort),
+		Endpoint:            "", // Empty - WireGuard learns endpoint from incoming packets
 		AllowedIPs:          fmt.Sprintf("%s/32, %s, 224.0.0.5/32", workerLoopback, subnet),
 		PersistentKeepAlive: 25,
 		Status:              models.PeerStatusActive,

@@ -23,6 +23,13 @@ type Settings struct {
 	OSPFHubToHubCost       int
 	OSPFHubToWorkerCost    int
 	OSPFWorkerToHubCost    int
+	// TLS settings
+	TLSEnabled   bool
+	TLSCertPath  string
+	TLSKeyPath   string
+	CACertPath   string
+	CAKeyPath    string
+	TLSHosts     []string // Hostnames/IPs for server certificate
 }
 
 type Overrides struct {
@@ -62,6 +69,13 @@ func Load() error {
 		OSPFHubToHubCost:      envIntOrDefault("GLUON_OSPF_HUB_TO_HUB_COST", 10),
 		OSPFHubToWorkerCost:   envIntOrDefault("GLUON_OSPF_HUB_TO_WORKER_COST", 100),
 		OSPFWorkerToHubCost:   envIntOrDefault("GLUON_OSPF_WORKER_TO_HUB_COST", 10),
+		// TLS settings
+		TLSEnabled:  envBoolOrDefault("GLUON_TLS_ENABLED", true),
+		TLSCertPath: envOrDefault("GLUON_TLS_CERT_PATH", "/var/lib/gluon/certs/server.crt"),
+		TLSKeyPath:  envOrDefault("GLUON_TLS_KEY_PATH", "/var/lib/gluon/certs/server.key"),
+		CACertPath:  envOrDefault("GLUON_CA_CERT_PATH", "/var/lib/gluon/certs/ca.crt"),
+		CAKeyPath:   envOrDefault("GLUON_CA_KEY_PATH", "/var/lib/gluon/certs/ca.key"),
+		TLSHosts:    envListOrDefault("GLUON_TLS_HOSTS", []string{"localhost", "127.0.0.1"}),
 	}
 
 	if cfg.SecretKey == "" {
@@ -140,6 +154,31 @@ func envIntOrDefault(key string, fallback int) int {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return fallback
+}
+
+func envBoolOrDefault(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	v = strings.ToLower(v)
+	return v == "true" || v == "1" || v == "yes"
+}
+
+func envListOrDefault(key string, fallback []string) []string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		parts := strings.Split(v, ",")
+		var result []string
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
 		}
 	}
 	return fallback

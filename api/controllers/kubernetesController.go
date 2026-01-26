@@ -1,13 +1,16 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"gluon-api/config"
 	"gluon-api/database"
 	"gluon-api/logger"
 	"gluon-api/models"
 	"gluon-api/services"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +22,11 @@ const (
 	joinRefreshWindow = 30 * time.Minute
 )
 
+var nodeExistsRe = regexp.MustCompile(`(?i)node with name \"([^\"]+)\"`)
+
+var k8sCleanupMu sync.Mutex
+var lastK8sCleanup time.Time
+
 type kubernetesTask struct {
 	Action               string `json:"action"`
 	ControlPlaneEndpoint string `json:"control_plane_endpoint,omitempty"`
@@ -27,6 +35,7 @@ type kubernetesTask struct {
 	KubernetesVersion    string `json:"kubernetes_version,omitempty"`
 	JoinCommand          string `json:"join_command,omitempty"`
 	Note                 string `json:"note,omitempty"`
+	BootstrapOwner       bool   `json:"bootstrap_owner,omitempty"`
 }
 
 type kubernetesReport struct {
@@ -68,9 +77,10 @@ func GetKubernetesTask(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to load cluster state"})
 	}
+	isBootstrap := cluster.BootstrapNodeID != nil && node.ID == *cluster.BootstrapNodeID
 
 	if cluster.InitializedAt == nil {
-		if cluster.BootstrapNodeID != nil && node.ID == *cluster.BootstrapNodeID {
+		if isBootstrap {
 			endpoint := cluster.ControlPlaneEndpoint
 			if endpoint == "" {
 				if ip, err := services.GetNodeLoopbackIP(bootstrapHub.ID); err == nil && ip != "" {
@@ -86,14 +96,14 @@ func GetKubernetesTask(c *fiber.Ctx) error {
 				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, cfg.KubernetesServiceCIDR),
 				KubernetesVersion:    nonEmpty(cluster.KubernetesVersion, defaultK8sVersion),
 				Note:                 "Bootstrap control-plane with kubeadm init (single-cluster mode)",
+				BootstrapOwner:       isBootstrap,
 			})
 		}
-		return c.JSON(kubernetesTask{Action: "wait", Note: "Waiting for bootstrap hub to initialize the cluster"})
+		return c.JSON(kubernetesTask{Action: "wait", Note: "Waiting for bootstrap hub to initialize the cluster", BootstrapOwner: isBootstrap})
 	}
 
 	
 	if wantsControlPlane(&node) {
-		isBootstrap := cluster.BootstrapNodeID != nil && node.ID == *cluster.BootstrapNodeID
 		if isBootstrap && shouldRefreshJoinCommands(cluster) {
 			endpoint := cluster.ControlPlaneEndpoint
 			if endpoint == "" {
@@ -110,37 +120,40 @@ func GetKubernetesTask(c *fiber.Ctx) error {
 				ServiceCIDR:          nonEmpty(cluster.ServiceCIDR, cfg.KubernetesServiceCIDR),
 				KubernetesVersion:    nonEmpty(cluster.KubernetesVersion, defaultK8sVersion),
 				Note:                 "Refresh Kubernetes join commands",
+				BootstrapOwner:       isBootstrap,
 			})
 		}
 
 		if node.K8sState == "joined_control_plane" || (isBootstrap && node.K8sState == "cluster_initialized") {
-			return c.JSON(kubernetesTask{Action: "none"})
+			return c.JSON(kubernetesTask{Action: "none", BootstrapOwner: isBootstrap})
 		}
 		if cluster.ControlPlaneJoinCommand == "" {
-			return c.JSON(kubernetesTask{Action: "wait", Note: "Cluster initialized; join command not available yet"})
+			return c.JSON(kubernetesTask{Action: "wait", Note: "Cluster initialized; join command not available yet", BootstrapOwner: isBootstrap})
 		}
 		return c.JSON(kubernetesTask{
 			Action:      "join_control_plane",
 			JoinCommand: cluster.ControlPlaneJoinCommand,
 			Note:        "Join as additional control-plane node",
+			BootstrapOwner: isBootstrap,
 		})
 	}
 
 	switch node.Role {
 	case models.NodeRoleWorker:
 		if node.K8sState == "joined_worker" {
-			return c.JSON(kubernetesTask{Action: "none"})
+			return c.JSON(kubernetesTask{Action: "none", BootstrapOwner: isBootstrap})
 		}
 		if cluster.WorkerJoinCommand == "" {
-			return c.JSON(kubernetesTask{Action: "wait", Note: "Cluster initialized; join command not available yet"})
+			return c.JSON(kubernetesTask{Action: "wait", Note: "Cluster initialized; join command not available yet", BootstrapOwner: isBootstrap})
 		}
 		return c.JSON(kubernetesTask{
 			Action:      "join_worker",
 			JoinCommand: cluster.WorkerJoinCommand,
 			Note:        "Join as worker node",
+			BootstrapOwner: isBootstrap,
 		})
 	default:
-		return c.JSON(kubernetesTask{Action: "none"})
+		return c.JSON(kubernetesTask{Action: "none", BootstrapOwner: isBootstrap})
 	}
 }
 
@@ -211,6 +224,25 @@ func ReportKubernetes(c *fiber.Ctx) error {
 				}
 			}
 		}
+		if strings.Contains(low, "kubeadm-config") && strings.Contains(low, "unauthorized") {
+			var cluster models.KubernetesCluster
+			if err := database.DB.Order("id asc").First(&cluster).Error; err == nil && cluster.InitializedAt != nil {
+				expires := time.Now().Add(-1 * time.Minute)
+				if err := database.DB.Model(&models.KubernetesCluster{}).
+					Where("id = ?", cluster.ID).
+					Updates(map[string]any{
+						"worker_join_command":        "",
+						"control_plane_join_command": "",
+						"join_command_expires_at":    &expires,
+					}).Error; err == nil {
+					logger.Info("Kubernetes join unauthorized; forcing join-command refresh", "cluster_id", cluster.ID, "node_id", nodeID)
+				} else {
+					logger.Error("Failed to mark join commands stale after unauthorized join", "error", err, "cluster_id", cluster.ID, "node_id", nodeID)
+				}
+			}
+		}
+
+		maybeCleanupKubernetesJoinFailure(&node, errMsg)
 
 	default:
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Unknown state"})
@@ -221,6 +253,121 @@ func ReportKubernetes(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "ok"})
+}
+
+func maybeCleanupKubernetesJoinFailure(node *models.Node, errMsg string) {
+	low := strings.ToLower(errMsg)
+	if !strings.Contains(low, "kubeadm join") {
+		return
+	}
+
+	k8sCleanupMu.Lock()
+	if time.Since(lastK8sCleanup) < 2*time.Minute {
+		k8sCleanupMu.Unlock()
+		return
+	}
+	lastK8sCleanup = time.Now()
+	k8sCleanupMu.Unlock()
+
+	nodeName := strings.TrimSpace(node.Hostname)
+	if m := nodeExistsRe.FindStringSubmatch(errMsg); len(m) > 1 {
+		nodeName = strings.TrimSpace(m[1])
+	}
+
+	if strings.Contains(low, "already exists in the cluster") || strings.Contains(low, "node with name") {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if nodeName != "" {
+			if out, err := kubectlRaw(ctx, []string{"delete", "node", nodeName, "--ignore-not-found"}); err != nil {
+				logger.Error("Failed to delete existing node before rejoin", "error", err, "node_name", nodeName, "output", strings.TrimSpace(out))
+			} else {
+				logger.Info("Deleted existing node before rejoin", "node_name", nodeName, "output", strings.TrimSpace(out))
+			}
+		}
+	}
+
+	if strings.Contains(low, "promote a learner") || strings.Contains(low, "rpc not supported for learner") {
+		cleanupEtcdLearner(node)
+	}
+}
+
+func cleanupEtcdLearner(node *models.Node) {
+	ip := ""
+	if loop, err := services.GetNodeLoopbackIP(node.ID); err == nil && loop != "" {
+		ip = loop
+	} else if node.ManagementIP != "" {
+		ip = node.ManagementIP
+	} else if node.PublicIP != "" {
+		ip = node.PublicIP
+	}
+	if ip == "" {
+		return
+	}
+
+	var cluster models.KubernetesCluster
+	if err := database.DB.Order("id asc").First(&cluster).Error; err != nil || cluster.BootstrapNodeID == nil {
+		return
+	}
+	var bootstrap models.Node
+	if err := database.DB.Select("id", "hostname").First(&bootstrap, *cluster.BootstrapNodeID).Error; err != nil {
+		return
+	}
+	etcdPod := "etcd-" + strings.TrimSpace(bootstrap.Hostname)
+	if etcdPod == "etcd-" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	listOut, err := kubectlRaw(ctx, []string{
+		"-n", "kube-system", "exec", etcdPod, "--",
+		"env", "ETCDCTL_API=3", "etcdctl",
+		"--endpoints=https://127.0.0.1:2379",
+		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+		"--cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt",
+		"--key=/etc/kubernetes/pki/etcd/healthcheck-client.key",
+		"member", "list",
+	})
+	if err != nil {
+		logger.Error("Failed to list etcd members", "error", err, "output", strings.TrimSpace(listOut))
+		return
+	}
+
+	memberID := ""
+	for _, line := range strings.Split(listOut, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 4 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		peerURL := strings.TrimSpace(parts[3])
+		if strings.Contains(peerURL, ip+":2380") {
+			memberID = id
+			break
+		}
+	}
+	if memberID == "" {
+		return
+	}
+
+	rmOut, err := kubectlRaw(ctx, []string{
+		"-n", "kube-system", "exec", etcdPod, "--",
+		"env", "ETCDCTL_API=3", "etcdctl",
+		"--endpoints=https://127.0.0.1:2379",
+		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+		"--cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt",
+		"--key=/etc/kubernetes/pki/etcd/healthcheck-client.key",
+		"member", "remove", memberID,
+	})
+	if err != nil {
+		logger.Error("Failed to remove etcd learner member", "error", err, "member_id", memberID, "output", strings.TrimSpace(rmOut))
+		return
+	}
+	logger.Info("Removed etcd learner member", "member_id", memberID, "node_id", node.ID)
 }
 
 func AdminGetKubernetesCluster(c *fiber.Ctx) error {

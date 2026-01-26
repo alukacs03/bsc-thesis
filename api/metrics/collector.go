@@ -3,7 +3,10 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"gluon-api/database"
@@ -20,6 +23,88 @@ var (
 			Help: "Total nodes grouped by role and status.",
 		},
 		[]string{"role", "status"},
+	)
+
+	// WireGuard metrics
+	wireguardHandshakeAge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_wireguard_handshake_age_seconds",
+			Help: "Seconds since last WireGuard handshake per peer.",
+		},
+		[]string{"node_id", "interface", "peer_node_id"},
+	)
+	wireguardRxBytesTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_wireguard_rx_bytes_total",
+			Help: "Total bytes received per WireGuard peer.",
+		},
+		[]string{"node_id", "interface", "peer_node_id"},
+	)
+	wireguardTxBytesTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_wireguard_tx_bytes_total",
+			Help: "Total bytes transmitted per WireGuard peer.",
+		},
+		[]string{"node_id", "interface", "peer_node_id"},
+	)
+	wireguardPeersTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_wireguard_peers_total",
+			Help: "Total WireGuard peers per node.",
+		},
+		[]string{"node_id", "status"},
+	)
+	wireguardStaleHandshakes = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "gluon_wireguard_stale_handshakes_total",
+			Help: "Total WireGuard peers with stale handshakes (>3 minutes).",
+		},
+	)
+
+	// OSPF metrics
+	ospfNeighborsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_ospf_neighbors_total",
+			Help: "Total OSPF neighbors grouped by state.",
+		},
+		[]string{"state"},
+	)
+	ospfNeighborsByNode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_ospf_neighbors_by_node",
+			Help: "OSPF neighbor count per node.",
+		},
+		[]string{"node_id", "state"},
+	)
+
+	// Config sync metrics
+	configVersionByNode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_config_version",
+			Help: "Current config version per node.",
+		},
+		[]string{"node_id"},
+	)
+	configApplySuccess = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gluon_config_apply_success_total",
+			Help: "Total successful config applications.",
+		},
+	)
+	configApplyFailure = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "gluon_config_apply_failure_total",
+			Help: "Total failed config applications.",
+		},
+	)
+
+	// Enrollment metrics
+	enrollmentRequestsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gluon_enrollment_requests_total",
+			Help: "Total enrollment requests grouped by status.",
+		},
+		[]string{"status"},
 	)
 	nodesOfflineTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -129,6 +214,21 @@ func init() {
 		commandsInFlight,
 		k8sPodsTotal,
 		k8sWorkloadsTotal,
+		// WireGuard metrics
+		wireguardHandshakeAge,
+		wireguardRxBytesTotal,
+		wireguardTxBytesTotal,
+		wireguardPeersTotal,
+		wireguardStaleHandshakes,
+		// OSPF metrics
+		ospfNeighborsTotal,
+		ospfNeighborsByNode,
+		// Config metrics
+		configVersionByNode,
+		configApplySuccess,
+		configApplyFailure,
+		// Enrollment metrics
+		enrollmentRequestsTotal,
 	)
 }
 
@@ -204,6 +304,11 @@ func StartDatabaseMetrics(interval time.Duration) {
 			updateLastSeenMetrics()
 			updateUsageMetrics()
 			updateKubernetesMetrics()
+			// New metrics
+			updateWireGuardMetrics()
+			updateOSPFMetrics()
+			updateConfigMetrics()
+			updateEnrollmentMetrics()
 		}
 	}()
 }
@@ -483,10 +588,206 @@ func updateKubernetesMetrics() {
 }
 
 func kubectlJSON(ctx context.Context, args []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	out, err := cmd.Output()
+	kubeconfig := strings.TrimSpace(os.Getenv("GLUON_KUBECONFIG"))
+	if kubeconfig == "" {
+		kubeconfig = "/etc/kubernetes/admin.conf"
+	}
+	if _, err := os.Stat(kubeconfig); err != nil {
+		return nil, fmt.Errorf("kubeconfig not found at %s", kubeconfig)
+	}
+	cmdArgs := append([]string{"--kubeconfig", kubeconfig}, args...)
+	cmd := exec.CommandContext(ctx, "kubectl", cmdArgs...)
+	cmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfig)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, err
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("kubectl failed: %s", msg)
 	}
 	return out, nil
+}
+
+// WireGuard peer row for metrics collection
+type wireguardPeerRow struct {
+	NodeID         uint
+	InterfaceName  string
+	PeerNodeID     uint
+	LastHandshakeAt *time.Time
+	RxBytes        uint64
+	TxBytes        uint64
+	Status         string
+}
+
+func updateWireGuardMetrics() {
+	var rows []wireguardPeerRow
+	err := database.DB.
+		Table("node_peers").
+		Select("wire_guard_interfaces.node_id as node_id, wire_guard_interfaces.name as interface_name, node_peers.peer_node_id, node_peers.last_handshake_at, node_peers.rx_bytes, node_peers.tx_bytes, node_peers.status").
+		Joins("JOIN wire_guard_interfaces ON node_peers.interface_id = wire_guard_interfaces.id").
+		Scan(&rows).Error
+	if err != nil {
+		logger.Error("metrics: failed to collect wireguard peer data", "error", err)
+		return
+	}
+
+	wireguardHandshakeAge.Reset()
+	wireguardRxBytesTotal.Reset()
+	wireguardTxBytesTotal.Reset()
+	wireguardPeersTotal.Reset()
+
+	now := time.Now()
+	staleCount := 0.0
+	peerCounts := map[string]map[string]int{} // node_id -> status -> count
+
+	for _, row := range rows {
+		nodeIDStr := fmt.Sprintf("%d", row.NodeID)
+		peerNodeIDStr := fmt.Sprintf("%d", row.PeerNodeID)
+
+		// Handshake age
+		if row.LastHandshakeAt != nil {
+			age := now.Sub(*row.LastHandshakeAt).Seconds()
+			wireguardHandshakeAge.WithLabelValues(nodeIDStr, row.InterfaceName, peerNodeIDStr).Set(age)
+			if age > 180 { // 3 minutes
+				staleCount++
+			}
+		}
+
+		// Bytes
+		wireguardRxBytesTotal.WithLabelValues(nodeIDStr, row.InterfaceName, peerNodeIDStr).Set(float64(row.RxBytes))
+		wireguardTxBytesTotal.WithLabelValues(nodeIDStr, row.InterfaceName, peerNodeIDStr).Set(float64(row.TxBytes))
+
+		// Peer counts
+		if peerCounts[nodeIDStr] == nil {
+			peerCounts[nodeIDStr] = map[string]int{}
+		}
+		peerCounts[nodeIDStr][row.Status]++
+	}
+
+	wireguardStaleHandshakes.Set(staleCount)
+
+	for nodeID, statusCounts := range peerCounts {
+		for status, count := range statusCounts {
+			wireguardPeersTotal.WithLabelValues(nodeID, status).Set(float64(count))
+		}
+	}
+}
+
+// OSPF neighbor info stored as JSON on node
+type ospfNeighborInfo struct {
+	NeighborID string `json:"neighbor_id"`
+	State      string `json:"state"`
+	Interface  string `json:"interface"`
+}
+
+func updateOSPFMetrics() {
+	var nodes []models.Node
+	err := database.DB.
+		Select("id, ospf_neighbors").
+		Where("ospf_neighbors IS NOT NULL").
+		Find(&nodes).Error
+	if err != nil {
+		logger.Error("metrics: failed to collect OSPF data", "error", err)
+		return
+	}
+
+	ospfNeighborsTotal.Reset()
+	ospfNeighborsByNode.Reset()
+
+	totalByState := map[string]int{}
+
+	for _, node := range nodes {
+		if node.OSPFNeighbors == nil {
+			continue
+		}
+
+		var neighbors []ospfNeighborInfo
+		if err := json.Unmarshal(node.OSPFNeighbors, &neighbors); err != nil {
+			continue
+		}
+
+		nodeIDStr := fmt.Sprintf("%d", node.ID)
+		nodeStateCount := map[string]int{}
+
+		for _, neighbor := range neighbors {
+			state := neighbor.State
+			if state == "" {
+				state = "unknown"
+			}
+			totalByState[state]++
+			nodeStateCount[state]++
+		}
+
+		for state, count := range nodeStateCount {
+			ospfNeighborsByNode.WithLabelValues(nodeIDStr, state).Set(float64(count))
+		}
+	}
+
+	for state, count := range totalByState {
+		ospfNeighborsTotal.WithLabelValues(state).Set(float64(count))
+	}
+}
+
+type configVersionRow struct {
+	NodeID         uint
+	AppliedVersion int
+}
+
+func updateConfigMetrics() {
+	var rows []configVersionRow
+	err := database.DB.
+		Table("nodes").
+		Select("nodes.id as node_id, COALESCE(applied_configs.version, 0) as applied_version").
+		Joins("LEFT JOIN (SELECT node_id, MAX(version) as version FROM node_configs WHERE applied_at IS NOT NULL GROUP BY node_id) AS applied_configs ON nodes.id = applied_configs.node_id").
+		Scan(&rows).Error
+	if err != nil {
+		// Fallback: just use zero for all nodes
+		var nodes []models.Node
+		if err := database.DB.Select("id").Find(&nodes).Error; err == nil {
+			configVersionByNode.Reset()
+			for _, n := range nodes {
+				configVersionByNode.WithLabelValues(fmt.Sprintf("%d", n.ID)).Set(0)
+			}
+		}
+		return
+	}
+
+	configVersionByNode.Reset()
+	for _, row := range rows {
+		configVersionByNode.WithLabelValues(fmt.Sprintf("%d", row.NodeID)).Set(float64(row.AppliedVersion))
+	}
+}
+
+type enrollmentCountRow struct {
+	Status string
+	Count  int64
+}
+
+func updateEnrollmentMetrics() {
+	var rows []enrollmentCountRow
+	err := database.DB.
+		Model(&models.NodeEnrollmentRequest{}).
+		Select("status, count(*) as count").
+		Group("status").
+		Scan(&rows).Error
+	if err != nil {
+		logger.Error("metrics: failed to collect enrollment counts", "error", err)
+		return
+	}
+
+	enrollmentRequestsTotal.Reset()
+	for _, row := range rows {
+		enrollmentRequestsTotal.WithLabelValues(row.Status).Set(float64(row.Count))
+	}
+}
+
+// IncrementConfigApplySuccess increments the config apply success counter
+func IncrementConfigApplySuccess() {
+	configApplySuccess.Inc()
+}
+
+// IncrementConfigApplyFailure increments the config apply failure counter
+func IncrementConfigApplyFailure() {
+	configApplyFailure.Inc()
 }

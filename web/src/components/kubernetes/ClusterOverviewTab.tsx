@@ -2,7 +2,6 @@ import CardContainer from "@/components/CardContainer";
 import CardWithIcon from "@/components/CardWithIcon";
 import type { KubernetesClusterSummary } from "@/services/types/kubernetes";
 import type { Node } from "@/services/types/node";
-import { formatBytes } from "@/utils/format";
 import { AlertTriangle, Network, Boxes, CheckCircle2, Server } from "lucide-react";
 
 export default function ClusterOverviewTab({
@@ -20,13 +19,6 @@ export default function ClusterOverviewTab({
   const online = nodes.filter((n) => n.status === "active").length;
   const offline = nodes.filter((n) => n.status === "offline").length;
   const workers = nodes.filter((n) => n.role === "worker").length;
-
-  let diskTotal = 0;
-  let diskUsed = 0;
-  for (const n of nodes) {
-    if (typeof n.disk_total_bytes === "number" && n.disk_total_bytes > 0) diskTotal += n.disk_total_bytes;
-    if (typeof n.disk_used_bytes === "number" && n.disk_used_bytes >= 0) diskUsed += n.disk_used_bytes;
-  }
 
   const healthLabel = offline > 0 ? "Degraded" : online > 0 ? "Healthy" : "Unknown";
   const initialized = Boolean(cluster?.initialized_at);

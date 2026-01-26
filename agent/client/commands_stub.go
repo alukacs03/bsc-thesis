@@ -3,6 +3,8 @@
 
 package client
 
+// DecommissionHandler is set by main to handle decommission commands
+var DecommissionHandler func()
 
 type CommandResult struct {
 	ID     uint   `json:"id"`

@@ -2,11 +2,14 @@ package client
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 )
@@ -23,14 +26,93 @@ type Client struct {
 	UserAgent  string
 }
 
+// ClientOptions holds configuration for the client
+type ClientOptions struct {
+	CACertPath    string // Path to CA certificate file
+	TLSSkipVerify bool   // Skip TLS verification (development only)
+}
+
 func New(baseURL string) *Client {
+	return NewWithOptions(baseURL, ClientOptions{})
+}
+
+// NewWithOptions creates a client with custom TLS options
+func NewWithOptions(baseURL string, opts ClientOptions) *Client {
+	transport := &http.Transport{}
+
+	// Configure TLS if needed
+	if opts.CACertPath != "" || opts.TLSSkipVerify {
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+
+		if opts.TLSSkipVerify {
+			tlsConfig.InsecureSkipVerify = true
+		} else if opts.CACertPath != "" {
+			// Load CA certificate
+			caCert, err := os.ReadFile(opts.CACertPath)
+			if err == nil {
+				caCertPool := x509.NewCertPool()
+				if caCertPool.AppendCertsFromPEM(caCert) {
+					tlsConfig.RootCAs = caCertPool
+				}
+			}
+		}
+
+		transport.TLSClientConfig = tlsConfig
+	}
+
 	return &Client{
 		BaseURL: baseURL,
 		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
+			Transport: transport,
 		},
 		UserAgent: fmt.Sprintf("gluon-agent/%s (%s; %s)", AgentVersion, runtime.GOOS, runtime.GOARCH),
 	}
+}
+
+// FetchCACertificate downloads the CA certificate from the API server.
+// This is used for TLS bootstrap when the agent doesn't have the CA cert yet.
+func FetchCACertificate(apiURL string, destPath string) error {
+	// Use insecure client for initial CA fetch (bootstrap)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			},
+		},
+	}
+
+	resp, err := client.Get(apiURL + "/api/ca.crt")
+	if err != nil {
+		return fmt.Errorf("failed to fetch CA certificate: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to fetch CA certificate: %s - %s", resp.Status, string(body))
+	}
+
+	certData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	// Verify it's a valid PEM certificate
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(certData) {
+		return fmt.Errorf("invalid CA certificate format")
+	}
+
+	if err := os.WriteFile(destPath, certData, 0644); err != nil {
+		return fmt.Errorf("failed to save CA certificate: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) RequestEnrollment(hostname, provider, os, desiredRole string) (uint, string, error) {
@@ -309,6 +391,7 @@ type KubernetesTask struct {
 	KubernetesVersion    string `json:"kubernetes_version,omitempty"`
 	JoinCommand          string `json:"join_command,omitempty"`
 	Note                 string `json:"note,omitempty"`
+	BootstrapOwner       bool   `json:"bootstrap_owner,omitempty"`
 }
 
 func (c *Client) GetKubernetesTask(apiKey string) (*KubernetesTask, error) {

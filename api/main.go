@@ -1,12 +1,14 @@
 package main
 
 import (
-	"gluon-api/controllers"
+	"crypto/tls"
+	"gluon-api/certs"
 	"gluon-api/config"
+	"gluon-api/controllers"
 	"gluon-api/database"
 	"gluon-api/logger"
-	"gluon-api/middleware"
 	"gluon-api/metrics"
+	"gluon-api/middleware"
 	"gluon-api/models"
 	"gluon-api/routes"
 	"gluon-api/services"
@@ -59,12 +61,62 @@ func main() {
 	logger.Debug("Setting up routes")
 	routes.SetupRoutes(app)
 
-	logger.Info("Starting server on port 3000")
-	err = app.Listen(":3000")
-	if err != nil {
-		logger.Error("Failed to start server:", err)
-		panic(err)
+	cfg := config.Current()
+	if cfg.TLSEnabled {
+		logger.Info("TLS is enabled, setting up certificates...")
+		if err := setupTLS(app, cfg); err != nil {
+			logger.Error("Failed to setup TLS", "error", err)
+			panic(err)
+		}
+	} else {
+		logger.Info("Starting server on port 3000 (TLS disabled)")
+		err = app.Listen(":3000")
+		if err != nil {
+			logger.Error("Failed to start server:", err)
+			panic(err)
+		}
 	}
+}
+
+func setupTLS(app *fiber.App, cfg config.Settings) error {
+	// Ensure CA exists or generate it
+	ca, caKey, err := certs.EnsureCA(cfg.CACertPath, cfg.CAKeyPath)
+	if err != nil {
+		return err
+	}
+	logger.Info("CA certificate ready", "path", cfg.CACertPath)
+
+	// Generate server certificate if needed
+	serverCertPEM, serverKeyPEM, err := certs.GenerateServerCert(ca, caKey, cfg.TLSHosts)
+	if err != nil {
+		return err
+	}
+
+	// Save server certificate
+	if err := certs.SaveServerCert(serverCertPEM, serverKeyPEM, cfg.TLSCertPath, cfg.TLSKeyPath); err != nil {
+		return err
+	}
+	logger.Info("Server certificate ready", "path", cfg.TLSCertPath, "hosts", cfg.TLSHosts)
+
+	// Load certificate for TLS config
+	cert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		return err
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// Create TLS listener
+	ln, err := tls.Listen("tcp", ":3000", tlsConfig)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Starting server on port 3000 with TLS")
+	return app.Listener(ln)
 }
 
 func startWorkerOfflineMonitor() {

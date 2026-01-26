@@ -15,6 +15,17 @@ const (
 	NodeCommandStatusFailed    NodeCommandStatus = "failed"
 )
 
+// Command kinds
+const (
+	CmdKindDecommission     = "decommission"
+	CmdKindRestart          = "restart"
+	CmdKindKillAgent        = "kill_agent"
+	CmdKindNetworkPartition = "network_partition"
+	CmdKindAddLatency       = "add_latency"
+	CmdKindDisableOSPF      = "disable_ospf"
+	CmdKindRestoreNetwork   = "restore_network"
+)
+
 type NodeCommand struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	CreatedAt time.Time `json:"created_at"`

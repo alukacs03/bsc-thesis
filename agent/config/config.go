@@ -17,6 +17,9 @@ type Config struct {
 	Provider         string `json:"provider"`
 	OS               string `json:"os"`
 	DesiredRole      string `json:"desired_role"`
+	// TLS settings
+	CACertPath       string `json:"ca_cert_path,omitempty"`
+	TLSSkipVerify    bool   `json:"tls_skip_verify,omitempty"` // For development only
 }
 
 func Load(path string) (*Config, error) {

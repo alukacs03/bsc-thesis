@@ -66,9 +66,24 @@ func APIKeyAuth() fiber.Handler {
 			})
 		}
 
+		var node models.Node
+		if err := database.DB.Select("id", "status").First(&node, matchedKey.NodeID).Error; err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid API key",
+			})
+		}
+
+		if node.Status == models.NodeStatusDecommissioned {
+			path := normalizePath(c.Path())
+			if !isDecommissionedPathAllowed(path) {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"error": "Node is decommissioned",
+				})
+			}
+		}
+
 		now := time.Now()
-		
-		
+
 		if matchedKey.LastUsedAt == nil || now.Sub(*matchedKey.LastUsedAt) >= 30*time.Second {
 			if err := database.DB.Model(&models.APIKey{}).
 				Where("id = ?", matchedKey.ID).
@@ -84,4 +99,23 @@ func APIKeyAuth() fiber.Handler {
 		return c.Next()
 	}
 
+}
+
+func normalizePath(path string) string {
+	if path == "" {
+		return path
+	}
+	if len(path) > 1 && strings.HasSuffix(path, "/") {
+		return strings.TrimRight(path, "/")
+	}
+	return path
+}
+
+func isDecommissionedPathAllowed(path string) bool {
+	switch path {
+	case "/api/agent/heartbeat", "/api/agent/commands/report":
+		return true
+	default:
+		return false
+	}
 }

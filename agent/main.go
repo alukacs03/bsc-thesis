@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -36,13 +37,30 @@ func main() {
 		log.Printf("API URL not in config, using: %s", cfg.APIURL)
 	}
 
+	// Set default CA cert path if not configured
+	if cfg.CACertPath == "" {
+		cfg.CACertPath = getEnvOrDefault("GLUON_CA_CERT_PATH", "/etc/gluon/ca.crt")
+	}
+
 	if err := pkgmgr.EnsureDependencies(ctx); err != nil {
 		log.Fatalf("Dependency check failed: %v", err)
 	}
 
 	log.Printf("System info: hostname=%s, os=%s, provider=%s", cfg.Hostname, cfg.OS, cfg.Provider)
 
-	apiClient := client.New(cfg.APIURL)
+	// Bootstrap TLS: fetch CA certificate if needed and using HTTPS
+	apiClient := createAPIClient(cfg, configPath)
+
+	// Set up decommission handler
+	client.DecommissionHandler = func() {
+		log.Println("Executing decommission cleanup...")
+		if err := applier.Cleanup(); err != nil {
+			log.Printf("Cleanup error: %v", err)
+		}
+		if err := applier.ClearCredentials(configPath); err != nil {
+			log.Printf("Failed to clear credentials: %v", err)
+		}
+	}
 
 	if cfg.IsEnrolled() {
 		log.Printf("Agent already enrolled (node_id=%s)", cfg.NodeID)
@@ -216,6 +234,78 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return val
 	}
 	return defaultValue
+}
+
+func createAPIClient(cfg *config.Config, configPath string) *client.Client {
+	if strings.HasPrefix(cfg.APIURL, "http://") {
+		httpsURL := "https://" + strings.TrimPrefix(cfg.APIURL, "http://")
+		if trySwitchToHTTPS(cfg, configPath, httpsURL) {
+			cfg.APIURL = httpsURL
+		}
+	}
+
+	isHTTPS := strings.HasPrefix(cfg.APIURL, "https://")
+
+	if !isHTTPS {
+		log.Println("Using HTTP (no TLS)")
+		return client.New(cfg.APIURL)
+	}
+
+	// Using HTTPS - need CA certificate
+	if cfg.TLSSkipVerify {
+		log.Println("WARNING: TLS verification disabled (development mode)")
+		return client.NewWithOptions(cfg.APIURL, client.ClientOptions{
+			TLSSkipVerify: true,
+		})
+	}
+
+	if _, err := os.Stat(cfg.CACertPath); os.IsNotExist(err) {
+		log.Printf("CA certificate not found at %s, fetching from API...", cfg.CACertPath)
+
+		dir := cfg.CACertPath[:len(cfg.CACertPath)-len("/ca.crt")]
+		if dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				log.Printf("Warning: failed to create directory %s: %v", dir, err)
+			}
+		}
+
+		if err := client.FetchCACertificate(cfg.APIURL, cfg.CACertPath); err != nil {
+			log.Printf("Failed to fetch CA certificate: %v", err)
+			log.Println("Falling back to InsecureSkipVerify")
+			return client.NewWithOptions(cfg.APIURL, client.ClientOptions{
+				TLSSkipVerify: true,
+			})
+		}
+
+		log.Printf("CA certificate saved to %s", cfg.CACertPath)
+
+		if err := cfg.Save(configPath); err != nil {
+			log.Printf("Warning: failed to save config: %v", err)
+		}
+	}
+
+	log.Printf("Using HTTPS with CA certificate: %s", cfg.CACertPath)
+	return client.NewWithOptions(cfg.APIURL, client.ClientOptions{
+		CACertPath: cfg.CACertPath,
+	})
+}
+
+func trySwitchToHTTPS(cfg *config.Config, configPath, httpsURL string) bool {
+	dir := cfg.CACertPath[:len(cfg.CACertPath)-len("/ca.crt")]
+	if dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Printf("Warning: failed to create directory %s: %v", dir, err)
+		}
+	}
+	if err := client.FetchCACertificate(httpsURL, cfg.CACertPath); err != nil {
+		log.Printf("HTTPS check failed: %v", err)
+		return false
+	}
+	cfg.APIURL = httpsURL
+	if err := cfg.Save(configPath); err != nil {
+		log.Printf("Warning: failed to save config: %v", err)
+	}
+	return true
 }
 
 func syncConfig(ctx context.Context, apiClient *client.Client, apiKey string) {

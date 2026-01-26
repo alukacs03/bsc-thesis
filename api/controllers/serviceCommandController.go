@@ -79,6 +79,7 @@ func ReportCommandResults(c *fiber.Ctx) error {
 
 	now := time.Now()
 	updated := 0
+	decommissionCompleted := false
 
 	for _, r := range input.Results {
 		if r.ID == 0 {
@@ -105,9 +106,24 @@ func ReportCommandResults(c *fiber.Ctx) error {
 			})
 		if tx.Error == nil && tx.RowsAffected > 0 {
 			updated++
+			if status == models.NodeCommandStatusSucceeded {
+				var cmd models.NodeCommand
+				if err := database.DB.Select("id", "kind").
+					Where("id = ? AND node_id = ?", r.ID, nodeID).
+					First(&cmd).Error; err == nil {
+					if cmd.Kind == models.CmdKindDecommission {
+						decommissionCompleted = true
+					}
+				}
+			}
 		}
+	}
+
+	if decommissionCompleted {
+		_ = database.DB.Model(&models.APIKey{}).
+			Where("node_id = ? AND revoked_at IS NULL", nodeID).
+			Update("revoked_at", now).Error
 	}
 
 	return c.JSON(fiber.Map{"updated": updated})
 }
-

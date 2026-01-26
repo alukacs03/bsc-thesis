@@ -7,12 +7,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"gluon-agent/client"
 	"gluon-agent/pkgmgr"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -33,6 +35,10 @@ const (
 	kubeletKubeadmFlagsPath  = "/var/lib/kubelet/kubeadm-flags.env"
 	kubeletSystemdDropInDir  = "/etc/systemd/system/kubelet.service.d"
 	kubeletNodeIPDropInPath  = "/etc/systemd/system/kubelet.service.d/20-gluon-node-ip.conf"
+	etcdCACertPath           = "/etc/kubernetes/pki/etcd/ca.crt"
+	etcdHealthCertPath       = "/etc/kubernetes/pki/etcd/healthcheck-client.crt"
+	etcdHealthKeyPath        = "/etc/kubernetes/pki/etcd/healthcheck-client.key"
+	bootstrapOwnerMarkerPath = "/var/lib/gluon/k8s-bootstrap-owner"
 )
 
 var flannelPatchMu sync.Mutex
@@ -48,6 +54,9 @@ var lastControlPlaneRejoinAttempt time.Time
 var controlPlaneHealthRejoinMu sync.Mutex
 var lastControlPlaneHealthRejoinAttempt time.Time
 
+var bootstrapRecoveryMu sync.Mutex
+var lastBootstrapRecoveryAttempt time.Time
+
 var kubeletNodeIPMu sync.Mutex
 var lastKubeletNodeIPAttempt time.Time
 
@@ -57,6 +66,9 @@ var lastMissingJoinReport time.Time
 var apiserverManifestMu sync.Mutex
 var lastApiserverManifestPatch time.Time
 
+var etcdManifestMu sync.Mutex
+var lastEtcdManifestPatch time.Time
+
 type initResult struct {
 	workerJoinCommand       string
 	controlPlaneJoinCommand string
@@ -64,10 +76,15 @@ type initResult struct {
 }
 
 func Sync(ctx context.Context, apiClient *client.Client, apiKey string) {
+	maybeRecoverBootstrapControlPlane(ctx)
+
 	task, err := apiClient.GetKubernetesTask(apiKey)
 	if err != nil {
 		log.Printf("Failed to get kubernetes task: %v", err)
 		return
+	}
+	if task != nil && task.BootstrapOwner {
+		markBootstrapOwner()
 	}
 
 	
@@ -353,6 +370,62 @@ func maybeForceControlPlaneRejoinWhenLocalAPIServerUnhealthy(ctx context.Context
 	return newTask
 }
 
+func maybeRecoverBootstrapControlPlane(ctx context.Context) {
+	if !isControlPlaneNode() {
+		return
+	}
+
+	if !recoveryOwnerEligible() {
+		return
+	}
+
+	apiserverStatus, apiserverErr := localAPIServerLivezStatus(ctx)
+	forcePresent, _ := etcdManifestHasFlag("--force-new-cluster")
+
+	if apiserverErr == nil && apiserverStatus == http.StatusOK {
+		if forcePresent {
+			if changed, err := patchEtcdManifestFlag("--force-new-cluster", false); err != nil {
+				log.Printf("Kubernetes: failed to remove etcd force-new-cluster flag: %v", err)
+			} else if changed {
+				log.Println("Kubernetes: removed etcd force-new-cluster flag; restarting kubelet")
+				_, _ = runLogged(ctx, "systemctl", "restart", "kubelet")
+			}
+		}
+		return
+	}
+
+	if forcePresent {
+		return
+	}
+
+	healthy, reason := etcdHealthy(ctx)
+	if healthy {
+		return
+	}
+
+	peers := etcdPeerURLs()
+	if len(peers) > 0 && canReachAnyPeer(peers) {
+		return
+	}
+
+	bootstrapRecoveryMu.Lock()
+	defer bootstrapRecoveryMu.Unlock()
+	if time.Since(lastBootstrapRecoveryAttempt) < 10*time.Minute {
+		return
+	}
+	lastBootstrapRecoveryAttempt = time.Now()
+
+	msg := fmt.Sprintf("bootstrap control-plane unhealthy (apiserver=%s etcd=%s); forcing etcd single-node recovery", formatHTTPStatus(apiserverStatus, apiserverErr), reason)
+	log.Printf("Kubernetes: %s", msg)
+
+	if changed, err := patchEtcdManifestFlag("--force-new-cluster", true); err != nil {
+		log.Printf("Kubernetes: failed to patch etcd manifest for recovery: %v", err)
+		return
+	} else if changed {
+		_, _ = runLogged(ctx, "systemctl", "restart", "kubelet")
+	}
+}
+
 func initCluster(ctx context.Context, task *client.KubernetesTask) (*initResult, error) {
 	if isInitialized() {
 		log.Println("Kubernetes already initialized; refreshing join commands...")
@@ -412,6 +485,7 @@ func initCluster(ctx context.Context, task *client.KubernetesTask) (*initResult,
 	if err := ensureRootKubeconfig(); err != nil {
 		log.Printf("Warning: failed to set up kubeconfig: %v", err)
 	}
+	markBootstrapOwner()
 
 	maybeEnsureApiserverAnonymousAuth(ctx)
 
@@ -983,6 +1057,85 @@ func formatHTTPStatus(status int, err error) string {
 	return fmt.Sprintf("%d %s", status, http.StatusText(status))
 }
 
+func markBootstrapOwner() {
+	dir := filepath.Dir(bootstrapOwnerMarkerPath)
+	_ = os.MkdirAll(dir, 0755)
+	_ = os.WriteFile(bootstrapOwnerMarkerPath, []byte("1"), 0644)
+}
+
+func recoveryOwnerEligible() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("GLUON_K8S_RECOVERY_OWNER")))
+	if v == "0" || v == "false" || v == "no" {
+		return false
+	}
+	if v == "1" || v == "true" || v == "yes" {
+		return true
+	}
+	if fileExists(bootstrapOwnerMarkerPath) {
+		return true
+	}
+	return false
+}
+
+func isLowestEtcdPeer() bool {
+	self := manifestFlagValueFromFile(etcdManifestPath, "--initial-advertise-peer-urls")
+	if self == "" {
+		return false
+	}
+	peers := etcdInitialClusterURLs()
+	if len(peers) == 0 {
+		return false
+	}
+	return isLowestPeer(self, peers)
+}
+
+func etcdHealthy(ctx context.Context) (bool, string) {
+	if !fileExists(etcdCACertPath) || !fileExists(etcdHealthCertPath) || !fileExists(etcdHealthKeyPath) {
+		return false, "missing etcd healthcheck certs"
+	}
+
+	cert, err := tls.LoadX509KeyPair(etcdHealthCertPath, etcdHealthKeyPath)
+	if err != nil {
+		return false, err.Error()
+	}
+	ca, err := os.ReadFile(etcdCACertPath)
+	if err != nil {
+		return false, err.Error()
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(ca) {
+		return false, "failed to load etcd CA"
+	}
+
+	c := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:      pool,
+				Certificates: []tls.Certificate{cert},
+			},
+		},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://127.0.0.1:2379/health", nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	low := strings.ToLower(strings.TrimSpace(string(body)))
+	if resp.StatusCode != http.StatusOK || strings.Contains(low, "\"health\":\"false\"") {
+		if low == "" {
+			low = strings.ToLower(resp.Status)
+		}
+		return false, low
+	}
+	return true, "ok"
+}
+
 func isSecondaryControlPlane() bool {
 	b, err := os.ReadFile(etcdManifestPath)
 	if err != nil {
@@ -1095,6 +1248,230 @@ func detectWireGuardAdvertiseAddress(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("no WireGuard/overlay IP found on this node")
 	}
 	return best.ip, nil
+}
+
+func etcdManifestHasFlag(flag string) (bool, error) {
+	b, err := os.ReadFile(etcdManifestPath)
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(string(b), flag), nil
+}
+
+func manifestFlagValueFromFile(path string, flag string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return manifestFlagValue(string(b), flag)
+}
+
+func patchEtcdManifestFlag(flag string, present bool) (bool, error) {
+	etcdManifestMu.Lock()
+	defer etcdManifestMu.Unlock()
+	if time.Since(lastEtcdManifestPatch) < 15*time.Second {
+		return false, nil
+	}
+
+	b, err := os.ReadFile(etcdManifestPath)
+	if err != nil {
+		return false, err
+	}
+	s := string(b)
+	if present && strings.Contains(s, flag) {
+		return false, nil
+	}
+	if !present && !strings.Contains(s, flag) {
+		return false, nil
+	}
+
+	lines := strings.Split(s, "\n")
+	if present {
+		prefix := ""
+		for _, line := range lines {
+			trimmed := strings.TrimLeft(line, " \t")
+			if strings.HasPrefix(trimmed, "- --") {
+				prefix = line[:len(line)-len(trimmed)]
+				break
+			}
+		}
+		if prefix == "" {
+			prefix = "    "
+		}
+		newLine := prefix + "- " + flag
+
+		insertAt := -1
+		for i, line := range lines {
+			if strings.Contains(line, "--name=") {
+				insertAt = i + 1
+				break
+			}
+		}
+		if insertAt == -1 {
+			for i, line := range lines {
+				if strings.Contains(line, "- etcd") {
+					insertAt = i + 1
+					break
+				}
+			}
+		}
+		if insertAt == -1 {
+			return false, fmt.Errorf("could not locate etcd command list in %s", etcdManifestPath)
+		}
+
+		lines = append(lines[:insertAt], append([]string{newLine}, lines[insertAt:]...)...)
+	} else {
+		filtered := lines[:0]
+		for _, line := range lines {
+			if strings.Contains(line, flag) {
+				continue
+			}
+			filtered = append(filtered, line)
+		}
+		lines = filtered
+	}
+
+	out := strings.Join(lines, "\n")
+	tmp := etcdManifestPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(out), 0644); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, etcdManifestPath); err != nil {
+		return false, err
+	}
+	lastEtcdManifestPatch = time.Now()
+	return true, nil
+}
+
+func etcdInitialClusterURLs() []string {
+	b, err := os.ReadFile(etcdManifestPath)
+	if err != nil {
+		return nil
+	}
+	s := string(b)
+	cluster := manifestFlagValue(s, "--initial-cluster")
+	if cluster == "" {
+		return nil
+	}
+	parts := strings.Split(cluster, ",")
+	peers := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		url := strings.TrimSpace(kv[1])
+		if url == "" {
+			continue
+		}
+		peers = append(peers, url)
+	}
+	return peers
+}
+
+func etcdPeerURLs() []string {
+	self := manifestFlagValueFromFile(etcdManifestPath, "--initial-advertise-peer-urls")
+	peers := etcdInitialClusterURLs()
+	if self == "" || len(peers) == 0 {
+		return peers
+	}
+	filtered := peers[:0]
+	for _, p := range peers {
+		if p == self {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
+}
+
+func manifestFlagValue(manifest string, flag string) string {
+	re := regexp.MustCompile(regexp.QuoteMeta(flag) + `(?:=|\s+)([^\s]+)`)
+	m := re.FindStringSubmatch(manifest)
+	if len(m) >= 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func isLowestPeer(self string, peers []string) bool {
+	selfHost := peerHost(self)
+	selfIP, ok := parsePeerIP(selfHost)
+	if !ok {
+		return false
+	}
+	lowest := selfIP
+	for _, p := range peers {
+		host := peerHost(p)
+		ip, ok := parsePeerIP(host)
+		if !ok {
+			return false
+		}
+		if ip.Compare(lowest) < 0 {
+			lowest = ip
+		}
+	}
+	return selfIP == lowest
+}
+
+func peerHost(peerURL string) string {
+	host := strings.TrimSpace(peerURL)
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	if idx := strings.Index(host, "/"); idx >= 0 {
+		host = host[:idx]
+	}
+	if host == "" {
+		return ""
+	}
+	if strings.HasPrefix(host, "[") {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			return h
+		}
+		return strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	if strings.Contains(host, ":") {
+		parts := strings.Split(host, ":")
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+	return host
+}
+
+func parsePeerIP(host string) (netip.Addr, bool) {
+	if host == "" {
+		return netip.Addr{}, false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return ip, true
+}
+
+func canReachAnyPeer(peers []string) bool {
+	for _, peer := range peers {
+		host := strings.TrimSpace(peer)
+		host = strings.TrimPrefix(host, "https://")
+		host = strings.TrimPrefix(host, "http://")
+		if host == "" {
+			continue
+		}
+		conn, err := net.DialTimeout("tcp", host, 2*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+	}
+	return false
 }
 
 func detectBrokenKubeadmState() error {

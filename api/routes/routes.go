@@ -13,6 +13,7 @@ import (
 func SetupRoutes(app *fiber.App) {
 	app.Get("/metrics", controllers.Metrics)
 	app.Get("/api", controllers.Hello)
+	app.Get("/api/ca.crt", controllers.GetCACertificate) // Unauthenticated - for TLS bootstrap
 	app.Post("/api/register", controllers.Register)
 	app.Post("/api/login", controllers.Login)
 	app.Get("/api/user", controllers.User)
@@ -37,6 +38,7 @@ func SetupRoutes(app *fiber.App) {
 	admin.Get("nodes/:id", controllers.GetNode)
 	admin.Get("nodes/:id/logs", controllers.ListNodeLogs)
 	admin.Delete("nodes/:id", controllers.DeleteNode)
+	admin.Post("nodes/:id/decommission", controllers.DecommissionNode)
 	admin.Post("revokeApiKey", controllers.RevokeAPIKey)
 	admin.Get("network/wireguard/peers", controllers.ListWireGuardPeers)
 	admin.Get("network/ospf/neighbors", controllers.ListOSPFNeighbors)

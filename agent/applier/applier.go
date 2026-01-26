@@ -279,3 +279,81 @@ func NeedsUpdate(bundle *client.ConfigBundle, state *ConfigState) bool {
 	}
 	return false
 }
+
+// Cleanup removes all Gluon-managed configurations.
+// This is called when an agent is decommissioned.
+func Cleanup() error {
+	log.Println("Starting cleanup for decommission...")
+
+	// 1. Stop FRR service
+	log.Println("Stopping FRR service...")
+	_ = exec.Command("systemctl", "stop", "frr").Run()
+
+	// 2. Bring down and remove all WireGuard interfaces
+	log.Println("Removing WireGuard interfaces...")
+	files, _ := filepath.Glob(filepath.Join(WireGuardDir, "wg-*.conf"))
+	for _, f := range files {
+		ifaceName := strings.TrimSuffix(filepath.Base(f), ".conf")
+		log.Printf("Bringing down interface: %s", ifaceName)
+		_ = exec.Command("ifdown", "--force", ifaceName).Run()
+		_ = exec.Command("ip", "link", "delete", ifaceName).Run()
+	}
+
+	// 3. Bring down dummy interface
+	_ = exec.Command("ifdown", "--force", "dummy").Run()
+	_ = exec.Command("ip", "link", "delete", "dummy").Run()
+
+	// 4. Remove WireGuard config files
+	log.Println("Removing WireGuard config files...")
+	for _, f := range files {
+		if err := os.Remove(f); err != nil {
+			log.Printf("Warning: failed to remove %s: %v", f, err)
+		}
+	}
+
+	// 5. Remove network interfaces config
+	gluonNetworkConfig := filepath.Join(NetworkInterfacesDir, "gluon")
+	if err := os.Remove(gluonNetworkConfig); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to remove %s: %v", gluonNetworkConfig, err)
+	}
+
+	// 6. Remove WireGuard keys
+	keysDir := "/var/lib/gluon/keys"
+	if err := os.RemoveAll(keysDir); err != nil {
+		log.Printf("Warning: failed to remove keys directory: %v", err)
+	}
+
+	// 7. Remove config state file
+	if err := os.Remove(StateFilePath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to remove state file: %v", err)
+	}
+
+	log.Println("Cleanup completed")
+	return nil
+}
+
+// ClearCredentials removes API credentials from the config file.
+func ClearCredentials(configPath string) error {
+	// Read current config
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return err
+	}
+
+	// Clear sensitive fields
+	delete(config, "api_key")
+	delete(config, "enrollment_secret")
+
+	// Write back
+	newData, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, newData, 0600)
+}
