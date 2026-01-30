@@ -493,7 +493,7 @@ func parseOSPFNeighborsJSON(b []byte) []ospfNeighborRaw {
 							continue
 						}
 						state := normalizeOSPFState(getStringAny(row, "state", "nbrState", "neighborState", "nbr_state"))
-						priority := getUintAny(row, "priority", "pri", "routerPriority")
+						priority := getUintAny(row, "priority", "pri", "routerPriority", "nbrPriority")
 						out = append(out, ospfNeighborRaw{RouterID: routerID, State: state, Interface: iface, Priority: priority})
 					}
 				}
@@ -503,7 +503,7 @@ func parseOSPFNeighborsJSON(b []byte) []ospfNeighborRaw {
 					continue
 				}
 				state := normalizeOSPFState(getStringAny(vv, "state", "nbrState", "neighborState", "nbr_state"))
-				priority := getUintAny(vv, "priority", "pri", "routerPriority")
+				priority := getUintAny(vv, "priority", "pri", "routerPriority", "nbrPriority")
 				out = append(out, ospfNeighborRaw{RouterID: routerID, State: state, Interface: iface, Priority: priority})
 			}
 		}
@@ -522,7 +522,7 @@ func parseOSPFNeighborsJSON(b []byte) []ospfNeighborRaw {
 				continue
 			}
 			state := normalizeOSPFState(getStringAny(row, "state", "nbrState", "neighborState", "nbr_state"))
-			priority := getUintAny(row, "priority", "pri", "routerPriority")
+			priority := getUintAny(row, "priority", "pri", "routerPriority", "nbrPriority")
 			out = append(out, ospfNeighborRaw{RouterID: routerID, State: state, Interface: iface, Priority: priority})
 		}
 	default:
@@ -599,8 +599,14 @@ func readOSPFInterfaceMeta() map[string]ospfInterfaceMeta {
 		}
 
 		area := getStringAny(row, "areaId", "area", "area_id")
-		hello := getUintAny(row, "helloInterval", "hello_interval", "helloIntervalSeconds")
-		dead := getUintAny(row, "deadInterval", "dead_interval", "deadIntervalSeconds")
+		hello := getUintAny(row, "helloInterval", "hello_interval", "helloIntervalSeconds", "timerHelloSecs")
+		if hello == nil {
+			hello = normalizeMillisToSeconds(getUintAny(row, "timerMsecs", "timerHelloInMsecs"))
+		}
+		dead := getUintAny(row, "deadInterval", "dead_interval", "deadIntervalSeconds", "timerDeadSecs")
+		if dead == nil {
+			dead = normalizeMillisToSeconds(getUintAny(row, "timerDeadInMsecs"))
+		}
 		cost := getUintAny(row, "cost")
 
 		outMeta[name] = ospfInterfaceMeta{
@@ -686,6 +692,14 @@ func getUintAny(m map[string]any, keys ...string) *uint64 {
 		}
 	}
 	return nil
+}
+
+func normalizeMillisToSeconds(v *uint64) *uint64 {
+	if v == nil {
+		return nil
+	}
+	val := (*v + 500) / 1000
+	return &val
 }
 
 func normalizeOSPFState(s string) string {

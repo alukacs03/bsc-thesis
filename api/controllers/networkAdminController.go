@@ -101,6 +101,23 @@ func listWireGuardPeers(c *fiber.Ctx, nodeID *string) error {
 				peerIfaceName = peerIface.Name
 			}
 		}
+		if peerIfaceName == "" && p.PeerNodeID != 0 {
+			localNode := p.Interface.Node
+			peerNode := p.PeerNode
+			if localNode.Role == models.NodeRoleHub && peerNode.Role == models.NodeRoleWorker {
+				if localNode.HubNumber > 0 {
+					peerIfaceName = fmt.Sprintf("wg-hub%d", localNode.HubNumber)
+				}
+			} else if localNode.Role == models.NodeRoleWorker && peerNode.Role == models.NodeRoleHub {
+				if localNode.Hostname != "" {
+					peerIfaceName = fmt.Sprintf("wg-%s", localNode.Hostname)
+				}
+			} else if localNode.Role == models.NodeRoleHub && peerNode.Role == models.NodeRoleHub {
+				if localNode.Hostname != "" {
+					peerIfaceName = fmt.Sprintf("wg-%s", localNode.Hostname)
+				}
+			}
+		}
 
 		out = append(out, wireGuardPeerView{
 			ID:                p.ID,

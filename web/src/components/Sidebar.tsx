@@ -1,5 +1,9 @@
 import Logo from './Logo'
 import { NavLink, useLocation } from 'react-router-dom'
+import { useMemo } from 'react'
+import { useEnrollments } from '@/services/hooks/useEnrollments'
+import { useWireGuardPeers } from '@/services/hooks/useWireGuardPeers'
+import { useOSPFNeighbors } from '@/services/hooks/useOSPFNeighbors'
 
 interface NavItem {
   id: string;
@@ -9,13 +13,12 @@ interface NavItem {
   path : string;
 }
 
-// badge is for demonstration purposes currently
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
-  { id: 'approvals', label: 'Approvals', badge: 3, badgeColor: 'bg-red-500', path: '/approvals' },
+  { id: 'approvals', label: 'Approvals', path: '/approvals' },
   { id: 'nodes', label: 'Nodes', path: '/nodes' },
   { id: 'kubernetes', label: 'Kubernetes', path: '/kubernetes' },
-  { id: 'networking', label: 'Networking', badge: 2, badgeColor: 'bg-yellow-500', path: '/networking' },
+  { id: 'networking', label: 'Networking', path: '/networking' },
 ];
 
 function NavButton({ item, isActive }: { item: NavItem; isActive: boolean }) {
@@ -40,6 +43,34 @@ function NavButton({ item, isActive }: { item: NavItem; isActive: boolean }) {
 
 const Sidebar = () => {
   const location = useLocation();
+  const { data: enrollments } = useEnrollments({ pollingInterval: 30000 });
+  const { data: wireGuardPeers } = useWireGuardPeers({ pollingInterval: 30000 });
+  const { data: ospfNeighbors } = useOSPFNeighbors({ pollingInterval: 30000 });
+
+  const pendingApprovals = useMemo(() => {
+    return (enrollments ?? []).filter((request) => request.status === "pending").length;
+  }, [enrollments]);
+
+  const networkingIssues = useMemo(() => {
+    const wgIssues = (wireGuardPeers ?? []).filter((peer) => peer.ui_status !== "connected").length;
+    const ospfIssues = (ospfNeighbors ?? []).filter((neighbor) => {
+      const state = (neighbor.state || "").toLowerCase();
+      return !state.startsWith("full");
+    }).length;
+    return wgIssues + ospfIssues;
+  }, [wireGuardPeers, ospfNeighbors]);
+
+  const navItems = useMemo(() => {
+    return NAV_ITEMS.map((item) => {
+      if (item.id === "approvals" && pendingApprovals > 0) {
+        return { ...item, badge: pendingApprovals, badgeColor: "bg-red-500" };
+      }
+      if (item.id === "networking" && networkingIssues > 0) {
+        return { ...item, badge: networkingIssues, badgeColor: "bg-yellow-500" };
+      }
+      return item;
+    });
+  }, [pendingApprovals, networkingIssues]);
 
   return (
     <div className="w-56 bg-white border-r border-slate-200 flex flex-col sticky top-0 h-screen">
@@ -48,7 +79,7 @@ const Sidebar = () => {
       </div>
 
       <nav className="flex-1 p-4 space-y-2">
-        {NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <NavButton
             key={item.id}
             item={item}

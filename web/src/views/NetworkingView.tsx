@@ -1,6 +1,6 @@
 import CardWithIcon from "../components/CardWithIcon"
 import CardContainer from "../components/CardContainer"
-import { Network, Router, Activity, Wifi, AlertTriangle, Settings } from 'lucide-react';
+import { Network, Router, Activity, Wifi, AlertTriangle, Settings, Search, X } from 'lucide-react';
 import Table from "../components/Table"
 import OSPFTableRow from "../components/OSPFTableRow";
 import { useWireGuardPeers } from "@/services/hooks/useWireGuardPeers";
@@ -12,11 +12,14 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatBytes } from "@/utils/format";
 import { handleAPIError } from "@/utils/errorHandler";
 import { toast } from "sonner";
 import type { ChangeEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import type { WireGuardPeer, WireGuardPeerUIStatus } from "@/services/types/wireguard";
+import type { OSPFNeighbor } from "@/services/types/ospf";
 
 type DeploymentSettingsForm = {
   loopbackCIDR: string;
@@ -57,6 +60,17 @@ const NetworkingView = () => {
   const [showRebuildModal, setShowRebuildModal] = useState(false);
   const [forceRebuild, setForceRebuild] = useState(false);
 
+  // WireGuard filters
+  const [wgSearch, setWgSearch] = useState("");
+  const [wgStatusFilter, setWgStatusFilter] = useState<WireGuardPeerUIStatus | "all">("all");
+  const [wgLocalNodeFilter, setWgLocalNodeFilter] = useState<string>("all");
+  const [wgPeerNodeFilter, setWgPeerNodeFilter] = useState<string>("all");
+
+  // OSPF filters
+  const [ospfSearch, setOspfSearch] = useState("");
+  const [ospfStateFilter, setOspfStateFilter] = useState<string>("all");
+  const [ospfNodeFilter, setOspfNodeFilter] = useState<string>("all");
+
   useEffect(() => {
     if (!deploymentSettings) return;
     setSettingsForm({
@@ -76,17 +90,101 @@ const NetworkingView = () => {
     });
   }, [deploymentSettings]);
 
-  if (loading && !wgPeers && ospfLoading && !ospfNeighbors) return <LoadingSpinner />;
-  if (error && !wgPeers && ospfError && !ospfNeighbors) {
-    return <ErrorMessage message={error.message} onRetry={refetch} />;
-  }
-
   const peers = wgPeers ?? [];
   const neighbors = ospfNeighbors ?? [];
+
+  // Extract unique values for filter dropdowns
+  const wgLocalNodes = useMemo(() => {
+    const nodes = new Set(peers.map(p => p.local_node_hostname || `node-${p.local_node_id}`));
+    return Array.from(nodes).sort();
+  }, [peers]);
+
+  const wgPeerNodes = useMemo(() => {
+    const nodes = new Set(peers.map(p => p.peer_hostname || `node-${p.peer_node_id}`));
+    return Array.from(nodes).sort();
+  }, [peers]);
+
+  const ospfNodes = useMemo(() => {
+    const nodes = new Set(neighbors.map(n => n.node_hostname));
+    return Array.from(nodes).sort();
+  }, [neighbors]);
+
+  const ospfStates = useMemo(() => {
+    const states = new Set(neighbors.map(n => n.state || 'Unknown'));
+    return Array.from(states).sort();
+  }, [neighbors]);
+
+  // Filter WireGuard peers
+  const filteredPeers = useMemo(() => {
+    const searchLower = wgSearch.trim().toLowerCase();
+    return peers.filter(p => {
+      // Status filter
+      if (wgStatusFilter !== "all" && p.ui_status !== wgStatusFilter) return false;
+
+      // Local node filter
+      const localNodeName = p.local_node_hostname || `node-${p.local_node_id}`;
+      if (wgLocalNodeFilter !== "all" && localNodeName !== wgLocalNodeFilter) return false;
+
+      // Peer node filter
+      const peerNodeName = p.peer_hostname || `node-${p.peer_node_id}`;
+      if (wgPeerNodeFilter !== "all" && peerNodeName !== wgPeerNodeFilter) return false;
+
+      // Search filter
+      if (searchLower) {
+        const searchableFields = [
+          localNodeName,
+          p.local_interface_name,
+          peerNodeName,
+          p.peer_interface_name,
+          p.peer_public_key,
+          p.peer_endpoint,
+          p.ui_status,
+        ].filter(Boolean).map(s => s.toLowerCase());
+        if (!searchableFields.some(f => f.includes(searchLower))) return false;
+      }
+
+      return true;
+    });
+  }, [peers, wgSearch, wgStatusFilter, wgLocalNodeFilter, wgPeerNodeFilter]);
+
+  // Filter OSPF neighbors
+  const filteredNeighbors = useMemo(() => {
+    const searchLower = ospfSearch.trim().toLowerCase();
+    return neighbors.filter(n => {
+      // State filter
+      if (ospfStateFilter !== "all" && (n.state || 'Unknown') !== ospfStateFilter) return false;
+
+      // Node filter
+      if (ospfNodeFilter !== "all" && n.node_hostname !== ospfNodeFilter) return false;
+
+      // Search filter
+      if (searchLower) {
+        const searchableFields = [
+          n.router_id,
+          n.area,
+          n.state,
+          n.interface,
+          n.node_hostname,
+        ].filter(Boolean).map(s => s.toLowerCase());
+        if (!searchableFields.some(f => f.includes(searchLower))) return false;
+      }
+
+      return true;
+    });
+  }, [neighbors, ospfSearch, ospfStateFilter, ospfNodeFilter]);
+
+  // Stats are based on all peers, not filtered
   const online = peers.filter(p => p.ui_status === 'connected').length;
   const potentiallyFailing = peers.filter(p => p.ui_status === 'potentially_failing').length;
   const down = peers.filter(p => p.ui_status === 'down').length;
   const ospfFull = neighbors.filter(n => (n.state || '').toLowerCase().startsWith('full')).length;
+  const hasWgFilters = Boolean(wgSearch) || wgStatusFilter !== "all" || wgLocalNodeFilter !== "all" || wgPeerNodeFilter !== "all";
+  const hasOspfFilters = Boolean(ospfSearch) || ospfStateFilter !== "all" || ospfNodeFilter !== "all";
+
+  if (loading && !wgPeers && ospfLoading && !ospfNeighbors) return <LoadingSpinner />;
+  if (error && !wgPeers && ospfError && !ospfNeighbors) {
+    return <ErrorMessage message={error.message} onRetry={refetch} />;
+  }
 
   function formatHandshake(ts?: string): string {
     if (!ts) return 'Never';
@@ -407,18 +505,120 @@ const NetworkingView = () => {
           )}
         </CardContainer>
         <CardContainer title="WireGuard Peers" noPadding={true} icon={<Wifi className="w-5 h-5"/>}>
+            {/* Search and Filters */}
+            <div className="border-b border-slate-200 bg-slate-50/70">
+              <div className="p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-2 font-semibold uppercase tracking-wide text-slate-500">
+                    <span>Filters</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm font-medium text-slate-500">
+                    <span>Showing {filteredPeers.length} of {peers.length}</span>
+                    {hasWgFilters && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setWgSearch("");
+                          setWgStatusFilter("all");
+                          setWgLocalNodeFilter("all");
+                          setWgPeerNodeFilter("all");
+                        }}
+                        className="border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-center">
+                  {/* Search */}
+                  <div className="relative md:col-span-2 xl:col-span-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Search peers..."
+                      value={wgSearch}
+                      onChange={(e) => setWgSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setWgSearch("");
+                      }}
+                      type="search"
+                      autoComplete="off"
+                      className="h-10 pl-9 pr-9 bg-white shadow-sm"
+                    />
+                    {wgSearch && (
+                      <button
+                        type="button"
+                        aria-label="Clear peer search"
+                        onClick={() => setWgSearch("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status Filter */}
+                  <div className="w-full">
+                    <Select value={wgStatusFilter} onValueChange={(v) => setWgStatusFilter(v as WireGuardPeerUIStatus | "all")}>
+                      <SelectTrigger className="h-10 w-full bg-white shadow-sm border-slate-200/80">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="connected">Connected</SelectItem>
+                        <SelectItem value="potentially_failing">Potentially Failing</SelectItem>
+                        <SelectItem value="down">Down</SelectItem>
+                        <SelectItem value="unknown">Unknown</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Local Node Filter */}
+                  <div className="w-full">
+                    <Select value={wgLocalNodeFilter} onValueChange={setWgLocalNodeFilter}>
+                      <SelectTrigger className="h-10 w-full bg-white shadow-sm border-slate-200/80">
+                        <SelectValue placeholder="Local Node" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Local Nodes</SelectItem>
+                        {wgLocalNodes.map(node => (
+                          <SelectItem key={node} value={node}>{node}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Peer Node Filter */}
+                  <div className="w-full">
+                    <Select value={wgPeerNodeFilter} onValueChange={setWgPeerNodeFilter}>
+                      <SelectTrigger className="h-10 w-full bg-white shadow-sm border-slate-200/80">
+                        <SelectValue placeholder="Peer Node" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Peer Nodes</SelectItem>
+                        {wgPeerNodes.map(node => (
+                          <SelectItem key={node} value={node}>{node}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <Table
                 columns={[
                   'Local Node', 'Local IF', 'Peer Node', 'Peer IF', 'Peer Key', 'Peer Endpoint', 'Status', 'Last Handshake', 'Transfer'
                 ]}>
-                {peers.length === 0 ? (
+                {filteredPeers.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-6 px-4 text-sm text-slate-600">
-                      No WireGuard peers found yet.
+                      {peers.length === 0 ? "No WireGuard peers found yet." : "No peers match the current filters."}
                     </td>
                   </tr>
                 ) : (
-                  peers.map((p) => {
+                  filteredPeers.map((p) => {
                     const statusLabel = p.ui_status.toUpperCase();
                     const statusClass =
                       p.ui_status === 'connected'
@@ -464,6 +664,91 @@ const NetworkingView = () => {
              </Table>
         </CardContainer>
         <CardContainer title="OSPF Neighbors" noPadding={true} icon={<Router className="w-5 h-5"/>}>
+            {/* Search and Filters */}
+            <div className="border-b border-slate-200 bg-slate-50/70">
+              <div className="p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-2 font-semibold uppercase tracking-wide text-slate-500">
+                    <span>Filters</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm font-medium text-slate-500">
+                    <span>Showing {filteredNeighbors.length} of {neighbors.length}</span>
+                    {hasOspfFilters && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setOspfSearch("");
+                          setOspfStateFilter("all");
+                          setOspfNodeFilter("all");
+                        }}
+                        className="border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 items-center">
+                  {/* Search */}
+                  <div className="relative md:col-span-2 xl:col-span-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Search neighbors..."
+                      value={ospfSearch}
+                      onChange={(e) => setOspfSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setOspfSearch("");
+                      }}
+                      type="search"
+                      autoComplete="off"
+                      className="h-10 pl-9 pr-9 bg-white shadow-sm"
+                    />
+                    {ospfSearch && (
+                      <button
+                        type="button"
+                        aria-label="Clear neighbor search"
+                        onClick={() => setOspfSearch("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* State Filter */}
+                  <div className="w-full">
+                    <Select value={ospfStateFilter} onValueChange={setOspfStateFilter}>
+                      <SelectTrigger className="h-10 w-full bg-white shadow-sm border-slate-200/80">
+                        <SelectValue placeholder="State" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All States</SelectItem>
+                        {ospfStates.map(state => (
+                          <SelectItem key={state} value={state}>{state}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Node Filter */}
+                  <div className="w-full">
+                    <Select value={ospfNodeFilter} onValueChange={setOspfNodeFilter}>
+                      <SelectTrigger className="h-10 w-full bg-white shadow-sm border-slate-200/80">
+                        <SelectValue placeholder="Node" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Nodes</SelectItem>
+                        {ospfNodes.map(node => (
+                          <SelectItem key={node} value={node}>{node}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <Table
                 columns={[
                   'Router ID', 'Area', 'State', 'Interface', 'Hello Timer', 'Dead Timer', 'Cost', 'Priority'
@@ -487,14 +772,14 @@ const NetworkingView = () => {
                       Loading OSPF neighbors…
                     </td>
                   </tr>
-                ) : neighbors.length === 0 ? (
+                ) : filteredNeighbors.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-6 px-4 text-sm text-slate-600">
-                      No OSPF neighbors found yet.
+                      {neighbors.length === 0 ? "No OSPF neighbors found yet." : "No neighbors match the current filters."}
                     </td>
                   </tr>
                 ) : (
-                  neighbors.map((n, idx) => (
+                  filteredNeighbors.map((n, idx) => (
                     <OSPFTableRow
                       key={`${n.node_id}-${n.router_id}-${n.interface}-${idx}`}
                       rowKey={`${n.node_id}-${n.router_id}-${n.interface}-${idx}`}

@@ -13,8 +13,9 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: env.VITE_API_BASE_URL ? undefined : {
         '/api': {
-          target: 'http://192.168.1.21:3000',
+          target: env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
           changeOrigin: true,
+          secure: false, // Accept self-signed certificates
         }
       }
     },
