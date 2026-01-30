@@ -35,6 +35,7 @@ const (
 	kubeletKubeadmFlagsPath  = "/var/lib/kubelet/kubeadm-flags.env"
 	kubeletSystemdDropInDir  = "/etc/systemd/system/kubelet.service.d"
 	kubeletNodeIPDropInPath  = "/etc/systemd/system/kubelet.service.d/20-gluon-node-ip.conf"
+	kubeletPKIDir            = "/var/lib/kubelet/pki"
 	etcdCACertPath           = "/etc/kubernetes/pki/etcd/ca.crt"
 	etcdHealthCertPath       = "/etc/kubernetes/pki/etcd/healthcheck-client.crt"
 	etcdHealthKeyPath        = "/etc/kubernetes/pki/etcd/healthcheck-client.key"
@@ -53,6 +54,10 @@ var lastControlPlaneRejoinAttempt time.Time
 
 var controlPlaneHealthRejoinMu sync.Mutex
 var lastControlPlaneHealthRejoinAttempt time.Time
+
+// Track when a control-plane join completed to provide a grace period for stabilization
+var lastControlPlaneJoinCompleted time.Time
+const controlPlaneJoinGracePeriod = 5 * time.Minute
 
 var bootstrapRecoveryMu sync.Mutex
 var lastBootstrapRecoveryAttempt time.Time
@@ -118,8 +123,29 @@ func Sync(ctx context.Context, apiClient *client.Client, apiKey string) {
 DECIDE:
 	switch action {
 	case "", "none":
-		
-		
+		// Even when API says "none" (node is supposedly joined), check for corrupted state.
+		// If kubelet config is missing critical files, we need to reset and rejoin.
+		if !retriedNone && isJoined() && hasMissingKubeletConfig() {
+			log.Println("Kubernetes: corrupted state detected while in 'none' action; resetting to rejoin cleanly")
+			if err := resetKubeadmState(ctx); err != nil {
+				log.Printf("Kubernetes reset failed: %v", err)
+				_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
+				return
+			}
+			// Report error to API so it knows we need a new join command
+			_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{
+				State:   "error",
+				Message: "kubelet PKI corrupted; reset complete, awaiting new join command",
+			})
+			retriedNone = true
+			// Refetch task - API should now give us a join command
+			if refreshed, err := apiClient.GetKubernetesTask(apiKey); err == nil && refreshed != nil {
+				task = refreshed
+				action = strings.ToLower(strings.TrimSpace(task.Action))
+				goto DECIDE
+			}
+		}
+
 		if !retriedNone && !isJoined() {
 			retriedNone = true
 			if maybeForceRejoinWhenNotJoined(apiClient, apiKey) {
@@ -239,12 +265,29 @@ DECIDE:
 		}
 		log.Printf("Kubernetes join(control-plane): target=%s", parseJoinTarget(task.JoinCommand))
 		if err := joinCluster(ctx, task.JoinCommand); err != nil {
+			errMsg := err.Error()
 			log.Printf("Kubernetes join(control-plane) failed: %v", err)
-			_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
-			return
+
+			// If node already exists in cluster, report to API (which will delete it) and retry once
+			if strings.Contains(strings.ToLower(errMsg), "already exists in the cluster") {
+				log.Println("Kubernetes: node already exists in cluster; reporting error to API for cleanup and retrying...")
+				_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: errMsg})
+				// Give API time to delete the node
+				time.Sleep(5 * time.Second)
+				// Retry join
+				if err := joinCluster(ctx, task.JoinCommand); err != nil {
+					log.Printf("Kubernetes join(control-plane) retry failed: %v", err)
+					_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
+					return
+				}
+			} else {
+				_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: errMsg})
+				return
+			}
 		}
 		ensureControlPlaneLabels(ctx)
 		maybeEnsureKubeletNodeIP(ctx)
+		lastControlPlaneJoinCompleted = time.Now() // Mark join time for grace period
 		_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "joined_control_plane"})
 		return
 	case "join_worker":
@@ -277,9 +320,25 @@ DECIDE:
 		}
 		log.Printf("Kubernetes join(worker): target=%s", parseJoinTarget(task.JoinCommand))
 		if err := joinCluster(ctx, task.JoinCommand); err != nil {
+			errMsg := err.Error()
 			log.Printf("Kubernetes join(worker) failed: %v", err)
-			_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
-			return
+
+			// If node already exists in cluster, report to API (which will delete it) and retry once
+			if strings.Contains(strings.ToLower(errMsg), "already exists in the cluster") {
+				log.Println("Kubernetes: node already exists in cluster; reporting error to API for cleanup and retrying...")
+				_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: errMsg})
+				// Give API time to delete the node
+				time.Sleep(5 * time.Second)
+				// Retry join
+				if err := joinCluster(ctx, task.JoinCommand); err != nil {
+					log.Printf("Kubernetes join(worker) retry failed: %v", err)
+					_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: err.Error()})
+					return
+				}
+			} else {
+				_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "error", Message: errMsg})
+				return
+			}
 		}
 		maybeEnsureKubeletNodeIP(ctx)
 		_ = apiClient.ReportKubernetes(apiKey, client.KubernetesReport{State: "joined_worker"})
@@ -313,12 +372,18 @@ func maybeForceControlPlaneRejoinWhenLocalAPIServerUnhealthy(ctx context.Context
 		return task
 	}
 
-	
+
 	if !isJoined() || !isControlPlaneNode() {
 		return task
 	}
-	
+
 	if !isSecondaryControlPlane() {
+		return task
+	}
+
+	// Give freshly joined control-planes time to stabilize before checking health.
+	// Etcd needs to sync, apiserver needs to start, etc.
+	if !lastControlPlaneJoinCompleted.IsZero() && time.Since(lastControlPlaneJoinCompleted) < controlPlaneJoinGracePeriod {
 		return task
 	}
 
@@ -712,6 +777,29 @@ func hasMissingKubeletConfig() bool {
 	}
 	if _, err := os.Stat("/var/lib/kubelet/config.yaml"); err != nil {
 		return true
+	}
+	// Check for kubelet client certificate - kubelet needs this to authenticate to the API server.
+	// If kubelet.conf references a certificate that doesn't exist, kubelet will crash loop.
+	// The certificate is usually at /var/lib/kubelet/pki/kubelet-client-current.pem (symlink)
+	// or directly referenced in kubelet.conf.
+	clientCertPath := "/var/lib/kubelet/pki/kubelet-client-current.pem"
+	if _, err := os.Stat(clientCertPath); err != nil {
+		// Also check if the PKI directory exists at all
+		if _, dirErr := os.Stat(kubeletPKIDir); dirErr != nil {
+			log.Printf("Kubernetes: kubelet PKI directory missing (%s)", kubeletPKIDir)
+			return true
+		}
+		log.Printf("Kubernetes: kubelet client certificate missing (%s)", clientCertPath)
+		return true
+	}
+	// Check for control-plane nodes: if apiserver manifest exists but etcd manifest is missing,
+	// the control-plane join was incomplete. The apiserver will crash trying to connect to
+	// localhost:2379 which doesn't exist.
+	if isControlPlaneNode() {
+		if _, err := os.Stat(etcdManifestPath); err != nil {
+			log.Printf("Kubernetes: control-plane node missing etcd manifest (%s)", etcdManifestPath)
+			return true
+		}
 	}
 	return false
 }

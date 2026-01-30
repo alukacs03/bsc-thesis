@@ -259,8 +259,10 @@ func bringUpInterfaces() error {
 }
 
 func reloadFRR() error {
-	log.Println("Reloading FRR...")
-	return runCommand("systemctl", "reload", "frr")
+	// Use restart instead of reload because reload doesn't apply router-id changes.
+	// The OSPF router-id is only set at startup, so we need a full restart.
+	log.Println("Restarting FRR...")
+	return runCommand("systemctl", "restart", "frr")
 }
 
 func runCommand(name string, args ...string) error {
