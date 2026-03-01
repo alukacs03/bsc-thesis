@@ -82,6 +82,18 @@ func AdminUpdateDeploymentSettings(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	if err := checkCIDROverlaps(map[string]string{
+		"loopback_cidr":          loopbackCIDR,
+		"hub_to_hub_cidr":        hubToHubCIDR,
+		"hub1_worker_cidr":       hub1WorkerCIDR,
+		"hub2_worker_cidr":       hub2WorkerCIDR,
+		"hub3_worker_cidr":       hub3WorkerCIDR,
+		"kubernetes_pod_cidr":    podCIDR,
+		"kubernetes_service_cidr": serviceCIDR,
+	}); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
 	if input.OSPFArea <= 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "ospf_area must be > 0"})
 	}
@@ -159,4 +171,25 @@ func requireCIDR(value string, field string) (string, error) {
 		return "", fmt.Errorf("%s must be a valid CIDR", field)
 	}
 	return trimmed, nil
+}
+
+func checkCIDROverlaps(pools map[string]string) error {
+	type entry struct {
+		name string
+		net  *net.IPNet
+	}
+	parsed := make([]entry, 0, len(pools))
+	for name, cidr := range pools {
+		_, ipnet, _ := net.ParseCIDR(cidr)
+		parsed = append(parsed, entry{name, ipnet})
+	}
+	for i := 0; i < len(parsed); i++ {
+		for j := i + 1; j < len(parsed); j++ {
+			a, b := parsed[i], parsed[j]
+			if a.net.Contains(b.net.IP) || b.net.Contains(a.net.IP) {
+				return fmt.Errorf("%s (%s) and %s (%s) overlap", a.name, a.net, b.name, b.net)
+			}
+		}
+	}
+	return nil
 }
