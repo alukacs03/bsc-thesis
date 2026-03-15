@@ -37,3 +37,7 @@ jobs:
       - name: Build
         working-directory: ${{ matrix.project }}
         run: go build -v ./...
+
+      - name: Test
+        working-directory: ${{ matrix.project }}
+        run: go test -v ./...
