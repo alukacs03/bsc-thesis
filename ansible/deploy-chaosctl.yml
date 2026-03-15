@@ -1,0 +1,8 @@
+- hosts: localhost
+  gather_facts: false
+  vars:
+    local_bin: "{{ playbook_dir }}/build/chaosctl"
+    dest_bin: /usr/local/bin/chaosctl
+  tasks:
+    - ansible.builtin.command: install -o root -g root -m 0755 "{{ local_bin }}" "{{ dest_bin }}"
+      become: true

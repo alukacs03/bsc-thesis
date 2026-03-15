@@ -1,0 +1,11 @@
+- hosts: localhost
+  gather_facts: false
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    out_dir: "{{ playbook_dir }}/build"
+    out_bin: "{{ out_dir }}/chaosctl"
+  tasks:
+    - ansible.builtin.file: { path: "{{ out_dir }}", state: directory, mode: "0755" }
+    - ansible.builtin.command: go build -trimpath -ldflags "-s -w" -o "{{ out_bin }}" ./cmd/chaosctl
+      args: { chdir: "{{ repo_root }}/chaosmonkey" }
+      environment: { CGO_ENABLED: "0" }

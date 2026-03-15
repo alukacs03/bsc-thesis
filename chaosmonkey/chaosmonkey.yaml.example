@@ -1,0 +1,32 @@
+# chaosmonkey.yaml — chaosctl operator configuration
+#
+# Config file is resolved in order:
+#   1. --config flag
+#   2. ./chaosmonkey.yaml
+#   3. ~/.config/chaosmonkey/chaosmonkey.yaml
+
+# SSH user used to connect to all nodes
+ssh_user: alukacs
+
+# Path to SSH private key (~/ is expanded)
+ssh_key: ~/.ssh/id_rsa
+
+# Directory where experiment result JSON files are written (~/ and ./ are expanded)
+results_dir: ./results
+
+# Node inventory — keys are the names used in --target flags
+nodes:
+  node20:
+    host: 192.168.1.20          # SSH host (IP or hostname)
+    interfaces: [wg-worker1, wg-worker2]  # WireGuard interfaces on this node
+    loopback: 10.255.0.1        # Overlay loopback IP (used as default --ping target)
+
+  node21:
+    host: 192.168.1.21
+    interfaces: [wg-worker1, wg-worker2]
+    loopback: 10.255.0.2
+
+  node23:
+    host: 192.168.1.23
+    interfaces: [wg-hub1, wg-hub2]
+    loopback: 10.255.0.3
