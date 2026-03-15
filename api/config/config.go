@@ -30,6 +30,8 @@ type Settings struct {
 	CACertPath   string
 	CAKeyPath    string
 	TLSHosts     []string // Hostnames/IPs for server certificate
+
+	AgentBinaryPath string
 }
 
 type Overrides struct {
@@ -75,7 +77,8 @@ func Load() error {
 		TLSKeyPath:  envOrDefault("GLUON_TLS_KEY_PATH", "/var/lib/gluon/certs/server.key"),
 		CACertPath:  envOrDefault("GLUON_CA_CERT_PATH", "/var/lib/gluon/certs/ca.crt"),
 		CAKeyPath:   envOrDefault("GLUON_CA_KEY_PATH", "/var/lib/gluon/certs/ca.key"),
-		TLSHosts:    envListOrDefault("GLUON_TLS_HOSTS", []string{"localhost", "127.0.0.1"}),
+		TLSHosts:        envListOrDefault("GLUON_TLS_HOSTS", []string{"localhost", "127.0.0.1"}),
+		AgentBinaryPath: envOrDefault("GLUON_AGENT_BINARY_PATH", "/var/lib/gluon/gluon-agent"),
 	}
 
 	if cfg.SecretKey == "" {

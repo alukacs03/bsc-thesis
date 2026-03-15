@@ -14,6 +14,8 @@ func SetupRoutes(app *fiber.App) {
 	app.Get("/metrics", controllers.Metrics)
 	app.Get("/api", controllers.Hello)
 	app.Get("/api/ca.crt", controllers.GetCACertificate) // Unauthenticated - for TLS bootstrap
+	app.Get("/install/agent", controllers.ServeAgentBinary)
+	app.Get("/install.sh", controllers.ServeInstallScript)
 	app.Post("/api/register", controllers.Register)
 	app.Post("/api/login", controllers.Login)
 	app.Get("/api/user", controllers.User)
