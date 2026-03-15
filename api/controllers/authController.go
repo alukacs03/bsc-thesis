@@ -462,8 +462,6 @@ func getUserFromToken(c *fiber.Ctx) (*models.User, error) {
 	return &user, nil
 }
 
-// GetCACertificate returns the CA certificate for agents to trust.
-// This endpoint is unauthenticated so agents can bootstrap TLS trust.
 func GetCACertificate(c *fiber.Ctx) error {
 	cfg := config.Current()
 	if !cfg.TLSEnabled {

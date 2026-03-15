@@ -22,8 +22,6 @@ type Config struct {
 	Nodes      map[string]NodeConfig `yaml:"nodes"`
 }
 
-// LoadConfig loads the config from the given explicit path (may be empty),
-// falling back to ./chaosmonkey.yaml and ~/.config/chaosmonkey/chaosmonkey.yaml.
 func LoadConfig(explicitPath string) (*Config, error) {
 	paths := buildSearchPaths(explicitPath)
 

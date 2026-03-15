@@ -282,8 +282,7 @@ func NeedsUpdate(bundle *client.ConfigBundle, state *ConfigState) bool {
 	return false
 }
 
-// Cleanup removes all Gluon-managed configurations.
-// This is called when an agent is decommissioned.
+// Called when an agent is decommissioned.
 func Cleanup() error {
 	log.Println("Starting cleanup for decommission...")
 
@@ -334,7 +333,6 @@ func Cleanup() error {
 	return nil
 }
 
-// ClearCredentials removes API credentials from the config file.
 func ClearCredentials(configPath string) error {
 	// Read current config
 	data, err := os.ReadFile(configPath)

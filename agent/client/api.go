@@ -26,7 +26,6 @@ type Client struct {
 	UserAgent  string
 }
 
-// ClientOptions holds configuration for the client
 type ClientOptions struct {
 	CACertPath    string // Path to CA certificate file
 	TLSSkipVerify bool   // Skip TLS verification (development only)
@@ -36,7 +35,6 @@ func New(baseURL string) *Client {
 	return NewWithOptions(baseURL, ClientOptions{})
 }
 
-// NewWithOptions creates a client with custom TLS options
 func NewWithOptions(baseURL string, opts ClientOptions) *Client {
 	transport := &http.Transport{}
 
@@ -72,8 +70,7 @@ func NewWithOptions(baseURL string, opts ClientOptions) *Client {
 	}
 }
 
-// FetchCACertificate downloads the CA certificate from the API server.
-// This is used for TLS bootstrap when the agent doesn't have the CA cert yet.
+// Used for TLS bootstrap when the agent doesn't have the CA cert yet.
 func FetchCACertificate(apiURL string, destPath string) error {
 	// Use insecure client for initial CA fetch (bootstrap)
 	client := &http.Client{

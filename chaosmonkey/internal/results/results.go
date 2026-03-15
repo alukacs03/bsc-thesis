@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// ExperimentResult holds the full record of a chaos experiment run.
 type ExperimentResult struct {
 	ID             string     `json:"id"`
 	Type           string     `json:"type"`
@@ -28,13 +27,10 @@ type ExperimentResult struct {
 	Status         string     `json:"status"`
 }
 
-// ExpID generates an experiment ID from the given start time.
-// Format: exp-<YYYYMMDD>-<HHMMSS>
 func ExpID(startedAt time.Time) string {
 	return fmt.Sprintf("exp-%s", startedAt.UTC().Format("20060102-150405"))
 }
 
-// Save writes result as indented JSON to <dir>/<result.ID>.json, creating dir if needed.
 func Save(result ExperimentResult, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("results: create dir %s: %w", dir, err)
@@ -52,9 +48,6 @@ func Save(result ExperimentResult, dir string) error {
 	return nil
 }
 
-// List reads all *.json files from dir, unmarshals each as ExperimentResult,
-// sorts by StartedAt descending, and returns the first n results.
-// If dir is missing or empty, returns an empty slice (not an error).
 func List(dir string, n int) ([]ExperimentResult, error) {
 	entries, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {

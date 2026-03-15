@@ -20,8 +20,6 @@ const (
 	keySize             = 4096
 )
 
-// EnsureCA loads existing CA or generates a new one if it doesn't exist.
-// Returns the CA certificate and private key.
 func EnsureCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	// Try to load existing CA
 	if cert, key, err := LoadCA(certPath, keyPath); err == nil {
@@ -32,7 +30,6 @@ func EnsureCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, err
 	return GenerateCA(certPath, keyPath)
 }
 
-// LoadCA loads an existing CA certificate and private key from files.
 func LoadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
@@ -67,7 +64,6 @@ func LoadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error
 	return cert, key, nil
 }
 
-// GenerateCA creates a new self-signed CA certificate and saves it to files.
 func GenerateCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(certPath), 0755); err != nil {
@@ -139,8 +135,6 @@ func GenerateCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, e
 	return cert, key, nil
 }
 
-// GenerateServerCert creates a new server certificate signed by the CA.
-// The hosts parameter can include both DNS names and IP addresses.
 func GenerateServerCert(ca *x509.Certificate, caKey *rsa.PrivateKey, hosts []string) (certPEM, keyPEM []byte, err error) {
 	// Generate server private key
 	key, err := rsa.GenerateKey(rand.Reader, keySize)
@@ -197,7 +191,6 @@ func GenerateServerCert(ca *x509.Certificate, caKey *rsa.PrivateKey, hosts []str
 	return certPEM, keyPEM, nil
 }
 
-// SaveServerCert writes the server certificate and key to files.
 func SaveServerCert(certPEM, keyPEM []byte, certPath, keyPath string) error {
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(certPath), 0755); err != nil {
@@ -215,8 +208,6 @@ func SaveServerCert(certPEM, keyPEM []byte, certPath, keyPath string) error {
 	return nil
 }
 
-// GetCAFingerprint returns the SHA256 fingerprint of the CA certificate.
-// This can be used for trust-on-first-use verification.
 func GetCAFingerprint(cert *x509.Certificate) string {
 	return fmt.Sprintf("%X", cert.Raw[:32])
 }

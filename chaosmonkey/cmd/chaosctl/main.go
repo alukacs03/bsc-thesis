@@ -104,19 +104,16 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 	startedAt := time.Now()
 	expID := results.ExpID(startedAt)
 
-	// 1. Load config
 	cfg, err := config.LoadConfig(configFlag)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// 2. Resolve node
 	node, ok := cfg.Nodes[iptablesTarget]
 	if !ok {
 		return fmt.Errorf("node %q not found in config (known nodes: %v)", iptablesTarget, nodeNames(cfg))
 	}
 
-	// 3. Determine ping target: --ping flag > node.Loopback > ""
 	pingTarget := iptablesPing
 	if pingTarget == "" {
 		pingTarget = node.Loopback
@@ -131,28 +128,24 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// 4. SSH connect
 	client, err := ssh.NewClient(node, cfg.SSHUser, cfg.SSHKey)
 	if err != nil {
 		return fmt.Errorf("ssh connect to %s: %w", iptablesTarget, err)
 	}
 	defer client.Close()
 
-	// 5. Start Measurer (if pingTarget != "")
 	var measurer *measure.Measurer
 	if pingTarget != "" {
 		measurer = measure.NewMeasurer(pingTarget)
 		measurer.Start()
 	}
 
-	// 6. Build action
 	action := actions.IptablesBlock{
 		Interface: iptablesInterface,
 		ExpID:     expID,
 		TTL:       iptablesTTL,
 	}
 
-	// 7. Plant nohup self-revert
 	if err := action.Plant(client); err != nil {
 		if measurer != nil {
 			measurer.Stop()
@@ -160,7 +153,6 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plant self-revert: %w", err)
 	}
 
-	// 8. Apply fault
 	faultAppliedAt := time.Now()
 	fmt.Printf("Fault applied at %s\n", faultAppliedAt.Format(time.RFC3339))
 	if err := action.Apply(client); err != nil {
@@ -185,21 +177,17 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("apply fault: %w", err)
 	}
 
-	// 9. Wait TTL
 	fmt.Printf("Waiting %ds for auto-revert...\n", iptablesTTL)
 	time.Sleep(time.Duration(iptablesTTL) * time.Second)
 
-	// 10. Revert
 	faultRevertedAt := time.Now()
 	revertErr := action.Revert(client)
 
-	// 11. Stop measurer
 	var measureResult measure.MeasureResult
 	if measurer != nil {
 		measureResult = measurer.Stop()
 	}
 
-	// 12. Build result
 	status := "completed"
 	if revertErr != nil {
 		status = "revert_failed"
@@ -234,7 +222,6 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: failed to save result: %v\n", err)
 	}
 
-	// 13. Print summary
 	fmt.Println()
 	fmt.Printf("Experiment:   %s\n", expID)
 	fmt.Printf("Target:       %s (%s)\n", iptablesTarget, iptablesInterface)
@@ -256,19 +243,16 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 	startedAt := time.Now()
 	expID := results.ExpID(startedAt)
 
-	// 1. Load config
 	cfg, err := config.LoadConfig(configFlag)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// 2. Resolve node
 	node, ok := cfg.Nodes[tcNetemTarget]
 	if !ok {
 		return fmt.Errorf("node %q not found in config (known nodes: %v)", tcNetemTarget, nodeNames(cfg))
 	}
 
-	// 3. Determine ping target: --ping flag > node.Loopback > ""
 	pingTarget := tcNetemPing
 	if pingTarget == "" {
 		pingTarget = node.Loopback
@@ -287,21 +271,18 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// 4. SSH connect
 	client, err := ssh.NewClient(node, cfg.SSHUser, cfg.SSHKey)
 	if err != nil {
 		return fmt.Errorf("ssh connect to %s: %w", tcNetemTarget, err)
 	}
 	defer client.Close()
 
-	// 5. Start Measurer (if pingTarget != "")
 	var measurer *measure.Measurer
 	if pingTarget != "" {
 		measurer = measure.NewMeasurer(pingTarget)
 		measurer.Start()
 	}
 
-	// 6. Build action
 	action := actions.TcNetem{
 		Interface: tcNetemInterface,
 		LatencyMs: tcNetemLatency,
@@ -310,7 +291,6 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 		TTL:       tcNetemTTL,
 	}
 
-	// 7. Plant nohup self-revert
 	if err := action.Plant(client); err != nil {
 		if measurer != nil {
 			measurer.Stop()
@@ -318,7 +298,6 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("plant self-revert: %w", err)
 	}
 
-	// 8. Apply fault
 	faultAppliedAt := time.Now()
 	fmt.Printf("Fault applied at %s\n", faultAppliedAt.Format(time.RFC3339))
 	if err := action.Apply(client); err != nil {
@@ -343,21 +322,17 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("apply fault: %w", err)
 	}
 
-	// 9. Wait TTL
 	fmt.Printf("Waiting %ds for auto-revert...\n", tcNetemTTL)
 	time.Sleep(time.Duration(tcNetemTTL) * time.Second)
 
-	// 10. Revert
 	faultRevertedAt := time.Now()
 	revertErr := action.Revert(client)
 
-	// 11. Stop measurer
 	var measureResult measure.MeasureResult
 	if measurer != nil {
 		measureResult = measurer.Stop()
 	}
 
-	// 12. Build result
 	status := "completed"
 	if revertErr != nil {
 		status = "revert_failed"
@@ -392,7 +367,6 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: failed to save result: %v\n", err)
 	}
 
-	// 13. Print summary
 	fmt.Println()
 	fmt.Printf("Experiment:   %s\n", expID)
 	fmt.Printf("Target:       %s (%s)\n", tcNetemTarget, tcNetemInterface)
@@ -405,8 +379,6 @@ func runTcNetem(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-
-// ── cleanup ──────────────────────────────────────────────────────────────────
 
 var cleanupTarget string
 
@@ -468,8 +440,6 @@ func runCleanup(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// ── results ───────────────────────────────────────────────────────────────────
-
 var resultsLast int
 
 var resultsCmd = &cobra.Command{
@@ -506,8 +476,6 @@ func runResults(cmd *cobra.Command, args []string) error {
 	}
 	return nil
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 func nodeNames(cfg *config.Config) []string {
 	names := make([]string, 0, len(cfg.Nodes))

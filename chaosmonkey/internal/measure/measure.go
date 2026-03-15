@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// MeasureResult holds the outcome of a measurement run.
 type MeasureResult struct {
 	FirstLossAt     *time.Time
 	FirstRecoveryAt *time.Time
@@ -17,7 +16,6 @@ type MeasureResult struct {
 	PacketsLost     int
 }
 
-// Measurer sends periodic ICMP pings to a target IP and records availability.
 type Measurer struct {
 	target string
 	cancel context.CancelFunc
@@ -25,12 +23,10 @@ type Measurer struct {
 	result MeasureResult
 }
 
-// NewMeasurer creates a new Measurer for the given target IP.
 func NewMeasurer(target string) *Measurer {
 	return &Measurer{target: target}
 }
 
-// Start launches the background ping goroutine.
 func (m *Measurer) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -39,7 +35,6 @@ func (m *Measurer) Start() {
 	go m.run(ctx)
 }
 
-// Stop signals the goroutine to stop, waits for it, and returns the result.
 func (m *Measurer) Stop() MeasureResult {
 	if m.cancel != nil {
 		m.cancel()
@@ -116,8 +111,6 @@ func (m *Measurer) run(ctx context.Context) {
 	}
 }
 
-// ping executes a single ICMP probe using the system ping command.
-// Returns true if the host replied within 1 second.
 func (m *Measurer) ping() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

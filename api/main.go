@@ -83,7 +83,6 @@ func main() {
 }
 
 func setupTLS(app *fiber.App, cfg config.Settings) error {
-	// Ensure CA exists or generate it
 	ca, caKey, err := certs.EnsureCA(cfg.CACertPath, cfg.CAKeyPath)
 	if err != nil {
 		return err

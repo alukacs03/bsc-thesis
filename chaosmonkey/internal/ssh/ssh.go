@@ -12,14 +12,10 @@ import (
 	"gluon-chaosmonkey/internal/config"
 )
 
-// Client wraps an established SSH connection.
 type Client struct {
 	conn *gossh.Client
 }
 
-// NewClient dials node.Host:22 using private-key authentication.
-// keyPath may begin with "~/" which is expanded to the user home directory.
-// Errors are descriptive: "auth failed: ..." or "unreachable: ...".
 func NewClient(node config.NodeConfig, user, keyPath string) (*Client, error) {
 	keyPath = expandHome(keyPath)
 
@@ -58,13 +54,10 @@ func NewClient(node config.NodeConfig, user, keyPath string) (*Client, error) {
 	return &Client{conn: conn}, nil
 }
 
-// Close closes the underlying SSH connection.
 func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Run executes cmd on the remote host, waits for it to finish, and returns
-// stdout and stderr as separate strings.
 func (c *Client) Run(cmd string) (stdout, stderr string, err error) {
 	sess, err := c.conn.NewSession()
 	if err != nil {
@@ -80,8 +73,6 @@ func (c *Client) Run(cmd string) (stdout, stderr string, err error) {
 	return outBuf.String(), errBuf.String(), runErr
 }
 
-// RunBackground starts cmd on the remote host via nohup and returns
-// immediately without waiting for the command to finish.
 func (c *Client) RunBackground(cmd string) error {
 	sess, err := c.conn.NewSession()
 	if err != nil {
@@ -89,8 +80,6 @@ func (c *Client) RunBackground(cmd string) error {
 	}
 	defer sess.Close()
 
-	// nohup + redirect to /dev/null so the session can be closed right away
-	// without the remote process receiving SIGHUP.
 	wrapped := fmt.Sprintf("nohup sh -c %q </dev/null >/dev/null 2>&1 &", cmd)
 	if err := sess.Start(wrapped); err != nil {
 		return fmt.Errorf("start background command: %w", err)
