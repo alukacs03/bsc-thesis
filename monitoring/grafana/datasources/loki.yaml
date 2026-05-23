@@ -1,0 +1,15 @@
+# Grafana Loki datasource provisioning
+# Copy this file to /etc/grafana/provisioning/datasources/loki.yaml
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://localhost:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000
+      timeout: 60
+    editable: true

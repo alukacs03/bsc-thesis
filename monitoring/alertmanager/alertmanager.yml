@@ -1,0 +1,70 @@
+# Alertmanager configuration for Gluon
+# Sends alerts to ntfy.sh via webhook
+
+global:
+  resolve_timeout: 5m
+
+# Route tree
+route:
+  # Default receiver
+  receiver: 'ntfy-gluon'
+
+  # Group alerts by alertname and severity
+  group_by: ['alertname', 'severity']
+
+  # Wait before sending first notification for a new group
+  group_wait: 30s
+
+  # Wait before sending updated notification for a group
+  group_interval: 5m
+
+  # Wait before resending notification for an unchanged alert
+  repeat_interval: 4h
+
+  # Child routes for different severities
+  routes:
+    # Critical alerts - send immediately, repeat more often
+    - match:
+        severity: critical
+      receiver: 'ntfy-gluon-critical'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts
+    - match:
+        severity: warning
+      receiver: 'ntfy-gluon'
+      repeat_interval: 4h
+
+    # Info alerts - less urgent
+    - match:
+        severity: info
+      receiver: 'ntfy-gluon'
+      repeat_interval: 12h
+
+# Inhibition rules - suppress lower severity alerts when higher severity fires
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']
+
+# Receivers
+receivers:
+  # Default receiver for warnings/info
+  - name: 'ntfy-gluon'
+    webhook_configs:
+      - url: 'http://localhost:9095/'
+        send_resolved: true
+        max_alerts: 10
+
+  # Critical alerts receiver - higher priority
+  - name: 'ntfy-gluon-critical'
+    webhook_configs:
+      - url: 'http://localhost:9095/'
+        send_resolved: true
+        max_alerts: 10
+
+# Templates for notification formatting (optional)
+templates: []

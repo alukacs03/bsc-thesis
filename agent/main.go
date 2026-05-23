@@ -317,9 +317,17 @@ func syncConfig(ctx context.Context, apiClient *client.Client, apiKey string) {
 	networkInfo, err := apiClient.GetNetworkInfo(apiKey)
 	if err != nil {
 		log.Printf("Failed to get network info: %v", err)
-	} else if len(networkInfo.RequiredInterfaces) == 0 {
-		log.Println("No network interfaces configured yet; skipping WireGuard key upload")
 	} else {
+		if networkInfo.Role == "hub" {
+			if err := applier.EnsureOverlayForwardRule(""); err != nil {
+				log.Printf("Failed to ensure overlay forward rule: %v", err)
+			}
+		}
+	}
+
+	if networkInfo != nil && len(networkInfo.RequiredInterfaces) == 0 {
+		log.Println("No network interfaces configured yet; skipping WireGuard key upload")
+	} else if networkInfo != nil {
 		log.Printf("Required interfaces: %v", networkInfo.RequiredInterfaces)
 
 		pubKeys, err := keys.EnsureKeys(networkInfo.RequiredInterfaces)

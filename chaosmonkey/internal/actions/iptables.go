@@ -8,9 +8,9 @@ import (
 )
 
 type IptablesBlock struct {
-	Interface string
-	ExpID     string
-	TTL       int
+	Interfaces []string
+	ExpID      string
+	TTL        int
 }
 
 func (a *IptablesBlock) comment() string {
@@ -21,15 +21,20 @@ func (a *IptablesBlock) pidFile() string {
 	return fmt.Sprintf("/tmp/chaosctl-%s.pid", a.ExpID)
 }
 
+func (a *IptablesBlock) revertCmds() []string {
+	var cmds []string
+	for _, iface := range a.Interfaces {
+		cmds = append(cmds,
+			fmt.Sprintf("sudo iptables -D INPUT -i %s -j DROP -m comment --comment %q", iface, a.comment()),
+			fmt.Sprintf("sudo iptables -D OUTPUT -o %s -j DROP -m comment --comment %q", iface, a.comment()),
+		)
+	}
+	return cmds
+}
+
 func (a *IptablesBlock) Plant(client *ssh.Client) error {
-	cmd := fmt.Sprintf(
-		"sleep %d && iptables -D INPUT -i %s -j DROP -m comment --comment %q && iptables -D OUTPUT -o %s -j DROP -m comment --comment %q",
-		a.TTL,
-		a.Interface,
-		a.comment(),
-		a.Interface,
-		a.comment(),
-	)
+	revertChain := strings.Join(a.revertCmds(), " ; ")
+	cmd := fmt.Sprintf("sleep %d ; %s", a.TTL, revertChain)
 	fullCmd := fmt.Sprintf(
 		"nohup bash -c %q >/dev/null 2>&1 & echo $! > %s",
 		cmd,
@@ -42,9 +47,12 @@ func (a *IptablesBlock) Plant(client *ssh.Client) error {
 }
 
 func (a *IptablesBlock) Apply(client *ssh.Client) error {
-	cmds := []string{
-		fmt.Sprintf("iptables -I INPUT -i %s -j DROP -m comment --comment %q", a.Interface, a.comment()),
-		fmt.Sprintf("iptables -I OUTPUT -o %s -j DROP -m comment --comment %q", a.Interface, a.comment()),
+	var cmds []string
+	for _, iface := range a.Interfaces {
+		cmds = append(cmds,
+			fmt.Sprintf("sudo iptables -I INPUT -i %s -j DROP -m comment --comment %q", iface, a.comment()),
+			fmt.Sprintf("sudo iptables -I OUTPUT -o %s -j DROP -m comment --comment %q", iface, a.comment()),
+		)
 	}
 	for _, cmd := range cmds {
 		_, _, err := client.Run(cmd)
@@ -61,15 +69,10 @@ func (a *IptablesBlock) Revert(client *ssh.Client) error {
 		a.pidFile(),
 	)
 	if _, _, err := client.Run(killCmd); err != nil {
-		// Non-fatal: the process may have already exited.
 		_ = err
 	}
 
-	cmds := []string{
-		fmt.Sprintf("iptables -D INPUT -i %s -j DROP -m comment --comment %q", a.Interface, a.comment()),
-		fmt.Sprintf("iptables -D OUTPUT -o %s -j DROP -m comment --comment %q", a.Interface, a.comment()),
-	}
-	for _, cmd := range cmds {
+	for _, cmd := range a.revertCmds() {
 		_, stderr, err := client.Run(cmd)
 		if err != nil && !isNotFoundError(stderr) {
 			return fmt.Errorf("revert iptables rule (%s): %w", cmd, err)

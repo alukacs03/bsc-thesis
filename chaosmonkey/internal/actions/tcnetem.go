@@ -20,7 +20,7 @@ func (a *TcNetem) pidFile() string {
 }
 
 func (a *TcNetem) Plant(client *ssh.Client) error {
-	revertCmd := fmt.Sprintf("sleep %d && tc qdisc del dev %s root", a.TTL, a.Interface)
+	revertCmd := fmt.Sprintf("sleep %d && sudo tc qdisc del dev %s root", a.TTL, a.Interface)
 	fullCmd := fmt.Sprintf(
 		"nohup bash -c %q >/dev/null 2>&1 & echo $! > %s",
 		revertCmd,
@@ -33,7 +33,7 @@ func (a *TcNetem) Plant(client *ssh.Client) error {
 }
 
 func (a *TcNetem) Apply(client *ssh.Client) error {
-	cmd := fmt.Sprintf("tc qdisc add dev %s root netem delay %dms", a.Interface, a.LatencyMs)
+	cmd := fmt.Sprintf("sudo tc qdisc add dev %s root netem delay %dms", a.Interface, a.LatencyMs)
 	if a.LossPct > 0 {
 		cmd += fmt.Sprintf(" loss %g%%", a.LossPct)
 	}
@@ -54,7 +54,7 @@ func (a *TcNetem) Revert(client *ssh.Client) error {
 		_ = err
 	}
 
-	delCmd := fmt.Sprintf("tc qdisc del dev %s root", a.Interface)
+	delCmd := fmt.Sprintf("sudo tc qdisc del dev %s root", a.Interface)
 	_, stderr, err := client.Run(delCmd)
 	if err != nil && !isNoQdiscError(stderr) {
 		return fmt.Errorf("revert tc-netem on %s: %w", a.Interface, err)

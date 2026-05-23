@@ -42,7 +42,7 @@ func PrometheusMetrics() fiber.Handler {
 		}
 
 		status := strconv.Itoa(c.Response().StatusCode())
-		method := c.Method()
+		method := string(c.Context().Method())
 		httpRequestsTotal.WithLabelValues(method, path, status).Inc()
 		httpRequestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 

@@ -1,0 +1,77 @@
+- hosts: all
+  gather_facts: false
+  vars:
+    local_bin: "{{ playbook_dir }}/build/gluon-agent"
+    tmp_bin: /tmp/gluon-agent
+    dest_bin: /usr/local/bin/gluon-agent
+    agent_config_path: /etc/gluon/agent.conf
+    agent_role: "{{ hostvars[inventory_hostname].agent_role | default('worker') }}"
+    agent_provider: "{{ hostvars[inventory_hostname].agent_provider | default('local') }}"
+    agent_hostname: "{{ hostvars[inventory_hostname].agent_hostname | default(inventory_hostname) }}"
+    agent_api_url: "{{ hostvars[inventory_hostname].agent_api_url | default('http://127.0.0.1:3000') }}"
+    agent_env: "{{ hostvars[inventory_hostname].agent_env | default({}) }}"
+  tasks:
+    - name: Ensure /etc/gluon exists
+      ansible.builtin.file:
+        path: /etc/gluon
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Write agent config
+      ansible.builtin.copy:
+        dest: "{{ agent_config_path }}"
+        mode: "0640"
+        content: |
+          {{ {
+            'api_url': agent_api_url,
+            'hostname': agent_hostname,
+            'provider': agent_provider,
+            'desired_role': agent_role
+          } | to_nice_json }}
+      become: true
+
+    - name: Copy agent binary to temp
+      ansible.builtin.copy:
+        src: "{{ local_bin }}"
+        dest: "{{ tmp_bin }}"
+        mode: "0755"
+
+    - name: Install agent binary
+      ansible.builtin.command: install -o root -g root -m 0755 "{{ tmp_bin }}" "{{ dest_bin }}"
+      become: true
+
+    - name: Install systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/gluon-agent.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Gluon Agent
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart={{ dest_bin }}
+          Restart=always
+          RestartSec=10
+          Environment=GLUON_CONFIG={{ agent_config_path }}
+          {% for key, value in agent_env.items() %}
+          Environment={{ key }}={{ value }}
+          {% endfor %}
+
+          [Install]
+          WantedBy=multi-user.target
+      become: true
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+      become: true
+
+    - name: Enable and restart agent
+      ansible.builtin.systemd:
+        name: gluon-agent
+        enabled: true
+        state: restarted
+      become: true

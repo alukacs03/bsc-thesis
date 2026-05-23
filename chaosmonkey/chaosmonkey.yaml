@@ -1,0 +1,34 @@
+ssh_user: alukacs
+ssh_key: ~/.ssh/id_rsa
+results_dir: ./results
+
+nodes:
+  test01:
+    host: 192.168.1.20
+    interfaces: [wg-test02, wg-test03, wg-testw01, wg-testw02, wg-worker3]
+    loopback: 10.255.0.1
+
+  test02:
+    host: 192.168.1.21
+    interfaces: [wg-test01, wg-test03, wg-testw01, wg-testw02, wg-worker3]
+    loopback: 10.255.0.2
+
+  test03:
+    host: 192.168.1.27
+    interfaces: [wg-test01, wg-test02, wg-testw01, wg-testw02, wg-worker3]
+    loopback: 10.255.0.3
+
+  testw01:
+    host: 192.168.1.23
+    interfaces: [wg-hub1, wg-hub2, wg-hub3]
+    loopback: 10.255.0.5
+
+  testw02:
+    host: 192.168.1.24
+    interfaces: [wg-hub1, wg-hub2, wg-hub3]
+    loopback: 10.255.0.4
+
+  worker3:
+    host: 192.168.1.26
+    interfaces: [wg-hub1, wg-hub2, wg-hub3]
+    loopback: 10.255.0.6

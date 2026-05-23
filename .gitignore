@@ -11,6 +11,30 @@ build/
 node_modules
 
 *.db
+*.db-shm
+*.db-wal
 
 .gomodcache/
 .gocache/
+.cache/
+
+# skill artifacts
+feature-spec.md
+implementation-list.json
+claude-progress.md
+chaos-monkey-progress.md
+.archive/
+chaosmonkey/results/
+
+# thesis writing & AI-generated docs (not part of code submission)
+docs/
+samples/
+screenshots/
+szakdolgozat.*
+~$*
+CLAUDE.md
+.claude/
+
+# binaries
+chaosmonkey/chaosctl
+chaosmonkey/docs/

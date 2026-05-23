@@ -1,0 +1,174 @@
+groups:
+  - name: gluon-nodes
+    rules:
+      - alert: GluonNodeOffline
+        expr: sum(gluon_nodes_total{status="offline"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gluon nodes are offline"
+          description: "{{ $value }} node(s) have been offline for more than 5 minutes."
+
+      - alert: GluonHubOffline
+        expr: sum(gluon_nodes_total{role="hub", status="offline"}) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gluon hub node is offline"
+          description: "{{ $value }} hub node(s) are offline. This may affect mesh connectivity."
+
+      - alert: GluonAllHubsOffline
+        expr: sum(gluon_nodes_total{role="hub", status="active"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All Gluon hub nodes are offline"
+          description: "No active hub nodes detected. Mesh network is likely non-functional."
+
+      - alert: GluonNodeHighCPU
+        expr: gluon_nodes_cpu_usage_avg > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on Gluon nodes"
+          description: "Average CPU usage for {{ $labels.role }} nodes is {{ $value | printf \"%.1f\" }}%."
+
+      - alert: GluonNodeHighMemory
+        expr: gluon_nodes_memory_usage_avg > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on Gluon nodes"
+          description: "Average memory usage for {{ $labels.role }} nodes is {{ $value | printf \"%.1f\" }}%."
+
+      - alert: GluonNodeHighDisk
+        expr: gluon_nodes_disk_usage_avg > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage on Gluon nodes"
+          description: "Average disk usage for {{ $labels.role }} nodes is {{ $value | printf \"%.1f\" }}%."
+
+  - name: gluon-wireguard
+    rules:
+      - alert: GluonWireGuardHandshakeStale
+        expr: gluon_wireguard_stale_handshakes_total > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stale WireGuard handshakes detected"
+          description: "{{ $value }} WireGuard peer(s) have stale handshakes (>3 minutes). This may indicate connectivity issues."
+
+      - alert: GluonWireGuardHandshakeCritical
+        expr: gluon_wireguard_handshake_age_seconds > 300
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "WireGuard handshake critically stale"
+          description: "WireGuard peer connection from node {{ $labels.node_id }} to peer {{ $labels.peer_node_id }} on interface {{ $labels.interface }} has not had a handshake in {{ $value | printf \"%.0f\" }} seconds."
+
+      - alert: GluonWireGuardNoTraffic
+        expr: rate(gluon_wireguard_rx_bytes_total[10m]) == 0 and rate(gluon_wireguard_tx_bytes_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No WireGuard traffic detected"
+          description: "No traffic on WireGuard tunnel from node {{ $labels.node_id }} to peer {{ $labels.peer_node_id }} for 15 minutes."
+
+  - name: gluon-ospf
+    rules:
+      - alert: GluonOSPFNeighborDown
+        expr: sum(gluon_ospf_neighbors_total{state="Full"}) < sum(gluon_nodes_total{status="active"}) - 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OSPF neighbor adjacency incomplete"
+          description: "Expected more OSPF Full neighbors. Current Full neighbors: {{ $value }}."
+
+      - alert: GluonOSPFNoFullNeighbors
+        expr: sum(gluon_ospf_neighbors_total{state="Full"}) == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No OSPF Full neighbors"
+          description: "No OSPF neighbors in Full state. Routing may be broken."
+
+      - alert: GluonOSPFNeighborFlapping
+        expr: changes(gluon_ospf_neighbors_by_node{state="Full"}[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OSPF neighbor flapping detected"
+          description: "OSPF neighbors on node {{ $labels.node_id }} have changed state more than 3 times in 10 minutes."
+
+  - name: gluon-api
+    rules:
+      - alert: GluonAPIHighLatency
+        expr: histogram_quantile(0.95, rate(gluon_api_http_request_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "95th percentile API latency is {{ $value | printf \"%.2f\" }}s for {{ $labels.path }}."
+
+      - alert: GluonAPIHighErrorRate
+        expr: sum(rate(gluon_api_http_requests_total{status=~"5.."}[5m])) / sum(rate(gluon_api_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is {{ $value | printf \"%.1f\" }}%."
+
+      - alert: GluonCommandsStuck
+        expr: gluon_commands_in_flight > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node commands stuck"
+          description: "{{ $value }} commands are stuck in pending/running state for more than 10 minutes."
+
+  - name: gluon-enrollment
+    rules:
+      - alert: GluonPendingEnrollments
+        expr: gluon_enrollment_requests_total{status="pending"} > 5
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Pending enrollment requests"
+          description: "{{ $value }} enrollment requests are pending for more than 30 minutes."
+
+  - name: gluon-kubernetes
+    rules:
+      - alert: GluonK8sNodesNotReady
+        expr: sum(gluon_nodes_k8s_state_total{state!="ready"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubernetes nodes not ready"
+          description: "{{ $value }} node(s) are not in ready state for Kubernetes."
+
+      - alert: GluonK8sPodsFailing
+        expr: sum(gluon_k8s_pods_total{phase=~"Failed|Unknown"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubernetes pods in failed state"
+          description: "{{ $value }} pod(s) are in Failed or Unknown state."

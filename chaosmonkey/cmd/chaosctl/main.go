@@ -140,10 +140,17 @@ func runIptablesBlock(cmd *cobra.Command, args []string) error {
 		measurer.Start()
 	}
 
+	var blockedInterfaces []string
+	if iptablesInterface == "all" {
+		blockedInterfaces = node.Interfaces
+	} else {
+		blockedInterfaces = []string{iptablesInterface}
+	}
+
 	action := actions.IptablesBlock{
-		Interface: iptablesInterface,
-		ExpID:     expID,
-		TTL:       iptablesTTL,
+		Interfaces: blockedInterfaces,
+		ExpID:      expID,
+		TTL:        iptablesTTL,
 	}
 
 	if err := action.Plant(client); err != nil {

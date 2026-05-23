@@ -129,7 +129,10 @@ func GenerateFRRConfigForWorker(hostname string, loopbackIP string, hubInterface
 	return GenerateFRRConfig(config)
 }
 
-func GenerateFRRConfigForHub(hostname string, loopbackIP string, hubToHubInterfaces []string, workerInterfaces []string) string {
+func GenerateFRRConfigForHub(hostname string,
+	loopbackIP string,
+	hubToHubInterfaces []string,
+	workerInterfaces []string) string {
 	cfg := config.Current()
 	interfaces := []OSPFInterface{
 		{

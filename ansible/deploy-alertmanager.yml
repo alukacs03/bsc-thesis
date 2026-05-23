@@ -1,0 +1,196 @@
+---
+# Deploy Alertmanager and ntfy webhook relay to the monitoring server
+# Usage: ansible-playbook -i inventory.yaml deploy-alertmanager.yml -e "monitor_host=monitor"
+
+- name: Deploy Alertmanager with ntfy integration
+  hosts: "{{ monitor_host | default('monitor') }}"
+  become: yes
+  vars:
+    alertmanager_version: "0.27.0"
+    alertmanager_user: alertmanager
+    alertmanager_group: alertmanager
+    alertmanager_config_dir: /etc/alertmanager
+    alertmanager_data_dir: /var/lib/alertmanager
+    ntfy_url: "https://notify.numnet.eu"
+    ntfy_topic: "gluon-alerts"
+    ntfy_critical_topic: "gluon-critical"
+
+  tasks:
+    # Alertmanager setup
+    - name: Create alertmanager user
+      user:
+        name: "{{ alertmanager_user }}"
+        system: yes
+        shell: /usr/sbin/nologin
+        home: "{{ alertmanager_data_dir }}"
+        create_home: no
+
+    - name: Create directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ alertmanager_user }}"
+        group: "{{ alertmanager_group }}"
+        mode: "0755"
+      loop:
+        - "{{ alertmanager_config_dir }}"
+        - "{{ alertmanager_data_dir }}"
+
+    - name: Check if Alertmanager binary exists
+      stat:
+        path: /usr/local/bin/alertmanager
+      register: alertmanager_binary
+
+    - name: Download Alertmanager
+      get_url:
+        url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+        dest: /tmp/alertmanager.tar.gz
+        mode: "0644"
+      when: not alertmanager_binary.stat.exists
+
+    - name: Extract Alertmanager
+      unarchive:
+        src: /tmp/alertmanager.tar.gz
+        dest: /tmp/
+        remote_src: yes
+      when: not alertmanager_binary.stat.exists
+
+    - name: Install Alertmanager binaries
+      copy:
+        src: "/tmp/alertmanager-{{ alertmanager_version }}.linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        remote_src: yes
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - alertmanager
+        - amtool
+      when: not alertmanager_binary.stat.exists
+      notify: Restart Alertmanager
+
+    - name: Copy Alertmanager configuration
+      template:
+        src: ../monitoring/alertmanager/alertmanager.yml
+        dest: "{{ alertmanager_config_dir }}/alertmanager.yml"
+        owner: "{{ alertmanager_user }}"
+        group: "{{ alertmanager_group }}"
+        mode: "0644"
+      notify: Restart Alertmanager
+
+    - name: Update alertmanager.yml with webhook URL
+      replace:
+        path: "{{ alertmanager_config_dir }}/alertmanager.yml"
+        regexp: "url: 'https://notify.numnet.eu/gluon-alerts'"
+        replace: "url: 'http://localhost:9095/'"
+
+    - name: Update alertmanager.yml critical webhook URL
+      replace:
+        path: "{{ alertmanager_config_dir }}/alertmanager.yml"
+        regexp: "url: 'https://notify.numnet.eu/gluon-critical'"
+        replace: "url: 'http://localhost:9095/'"
+
+    - name: Create Alertmanager systemd service
+      copy:
+        dest: /etc/systemd/system/alertmanager.service
+        content: |
+          [Unit]
+          Description=Prometheus Alertmanager
+          Documentation=https://prometheus.io/docs/alerting/alertmanager/
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User={{ alertmanager_user }}
+          Group={{ alertmanager_group }}
+          ExecStart=/usr/local/bin/alertmanager \
+            --config.file={{ alertmanager_config_dir }}/alertmanager.yml \
+            --storage.path={{ alertmanager_data_dir }} \
+            --web.listen-address=:9093 \
+            --cluster.listen-address=
+          ExecReload=/bin/kill -HUP $MAINPID
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart Alertmanager
+
+    # ntfy webhook relay setup
+    - name: Install Python3
+      apt:
+        name: python3
+        state: present
+
+    - name: Copy ntfy webhook script
+      copy:
+        src: ../monitoring/alertmanager/ntfy-webhook.py
+        dest: /usr/local/bin/ntfy-webhook.py
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart ntfy-webhook
+
+    - name: Create ntfy-webhook systemd service
+      copy:
+        dest: /etc/systemd/system/ntfy-webhook.service
+        content: |
+          [Unit]
+          Description=Alertmanager to ntfy webhook relay
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=nobody
+          Group=nogroup
+          Environment="NTFY_URL={{ ntfy_url }}"
+          Environment="NTFY_TOPIC={{ ntfy_topic }}"
+          Environment="NTFY_CRITICAL_TOPIC={{ ntfy_critical_topic }}"
+          Environment="LISTEN_PORT=9095"
+          ExecStart=/usr/bin/python3 /usr/local/bin/ntfy-webhook.py
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart ntfy-webhook
+
+    - name: Enable and start services
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - alertmanager
+        - ntfy-webhook
+
+    - name: Clean up downloaded files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/alertmanager.tar.gz
+        - "/tmp/alertmanager-{{ alertmanager_version }}.linux-amd64"
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Restart Alertmanager
+      systemd:
+        name: alertmanager
+        state: restarted
+
+    - name: Restart ntfy-webhook
+      systemd:
+        name: ntfy-webhook
+        state: restarted

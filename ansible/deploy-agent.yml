@@ -1,0 +1,14 @@
+- hosts: agents
+  gather_facts: false
+  vars:
+    local_bin: "{{ playbook_dir }}/build/gluon-agent"
+    tmp_bin: /tmp/gluon-agent
+    dest_bin: /usr/local/bin/gluon-agent
+  tasks:
+    - ansible.builtin.copy: { src: "{{ local_bin }}", dest: "{{ tmp_bin }}", mode: "0755" }
+    - ansible.builtin.command: install -o root -g root -m 0755 "{{ tmp_bin }}" "{{ dest_bin }}"
+      become: true
+    - ansible.builtin.systemd:
+        name: gluon-agent
+        state: restarted
+      become: true
